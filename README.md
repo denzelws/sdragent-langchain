@@ -1,28 +1,58 @@
 # Gmail Ollama SDR Agent
 
-A local TypeScript SDR drafting agent inspired by a LangSmith Fleet-style Gmail workflow. It reads recent Gmail messages, uses Ollama locally to classify likely B2B SaaS RevOps prospects, generates personalized outreach draft text, and can create Gmail drafts only after terminal approval.
+## Overview
 
-The default setup has no paid API dependency and does not send email.
+Local TypeScript CLI assistant for a narrow Gmail + Ollama SDR workflow. It reads Gmail messages, uses a local Ollama model to classify likely B2B SaaS RevOps prospects, generates outreach draft text, and can optionally create Gmail drafts.
 
-## What It Does
+By default, the safe mode is read/classify/generate only: it does not create Gmail drafts by default and does not send emails by default. Sending is optional and requires explicit enablement plus a second send approval prompt.
 
-- Reads recent Gmail messages with the Gmail API.
-- Normalizes sender, recipient, subject, date, snippet, thread id, message id, and body.
-- Uses `@langchain/ollama` with a local Ollama model to classify prospects.
+## Features
+
+- Reads Gmail messages with a configurable Gmail search query.
+- Classifies prospects with local Ollama through LangChain.
 - Generates concise outreach draft text for qualified prospects.
-- Prints generated drafts in the terminal.
-- Optionally creates Gmail drafts after human approval.
+- Validates LLM output with Zod; invalid output falls back safely.
+- Optionally creates Gmail drafts after terminal approval.
+- Optionally sends created Gmail drafts after a second explicit approval.
+- No frontend, database, CRM, web enrichment, lead generation, or scheduling.
 
-## What It Does Not Do
+## Safety Defaults
 
-- It does not send emails.
-- It does not delete, archive, label, or modify existing emails.
-- It does not generate leads.
-- It does not schedule meetings or create calendar events.
-- It does not browse the web or enrich leads.
-- It does not connect to a CRM.
-- It does not include a frontend or database.
-- It does not use OpenAI, Anthropic, or paid APIs by default.
+Use these defaults for local development:
+
+```env
+DRY_RUN=true
+CREATE_DRAFTS=false
+SEND_APPROVED_DRAFTS=false
+REQUIRE_DRAFT_APPROVAL=true
+REQUIRE_SEND_APPROVAL=true
+DEBUG_LLM_OUTPUT=false
+```
+
+| Setting | Safe behavior |
+| --- | --- |
+| `DRY_RUN=true` | Prints results but does not create drafts or send. |
+| `CREATE_DRAFTS=false` | Gmail drafts are not created. |
+| `SEND_APPROVED_DRAFTS=false` | Created drafts are not sent. |
+| `REQUIRE_DRAFT_APPROVAL=true` | User must approve draft creation. |
+| `REQUIRE_SEND_APPROVAL=true` | User must approve sending after draft creation. |
+| `DEBUG_LLM_OUTPUT=false` | Raw LLM output is not logged. |
+
+Sending requires all of the following:
+
+```env
+DRY_RUN=false
+CREATE_DRAFTS=true
+SEND_APPROVED_DRAFTS=true
+```
+
+If `REQUIRE_SEND_APPROVAL=true`, the app also asks:
+
+```txt
+Send this Gmail draft now? (y/N)
+```
+
+Only `y` or `yes` approves. Pressing enter rejects.
 
 ## Setup
 
@@ -32,185 +62,118 @@ Install dependencies:
 npm install
 ```
 
-Create a local environment file:
+Create a local env file:
 
 ```bash
 cp .env.example .env
 ```
 
-Default `.env` values:
+Review `.env` before running against a real inbox. For safest testing, keep `DRY_RUN=true`, `CREATE_DRAFTS=false`, and `SEND_APPROVED_DRAFTS=false`.
 
-```env
-OLLAMA_MODEL=llama3.2:3b
-OLLAMA_BASE_URL=http://localhost:11434
-
-GMAIL_CREDENTIALS_PATH=./credentials.json
-GMAIL_TOKEN_PATH=./token.json
-GMAIL_QUERY=in:inbox newer_than:7d
-
-MAX_EMAILS=10
-DRY_RUN=true
-CREATE_DRAFTS=false
-REQUIRE_DRAFT_APPROVAL=true
-```
-
-## Gmail OAuth Setup
-
-1. Create or open a Google Cloud project.
-2. Enable the Gmail API.
-3. Configure the OAuth consent screen for local testing.
-4. Create OAuth client credentials. A desktop app credential is simplest.
-5. Download the OAuth file.
-6. Save it in this project root as `credentials.json`.
-7. Run:
-
-```bash
-npm run auth:gmail
-```
-
-The command opens an authorization URL in the terminal. Paste the returned code when prompted. The app writes `token.json` locally.
-
-The app requests only:
-
-- Gmail read-only scope for reading messages.
-- Gmail compose scope for creating drafts.
-
-It never requests a send scope.
-
-Do not commit these files:
-
-- `.env`
-- `credentials.json`
-- `token.json`
-
-They are already listed in `.gitignore`.
-
-## Ollama Setup
-
-Install Ollama, then pull the default local model:
+Install and start Ollama:
 
 ```bash
 ollama pull llama3.2:3b
 ollama serve
 ```
 
-You can change the model with:
+Typecheck:
 
-```env
-OLLAMA_MODEL=llama3.2:3b
-OLLAMA_BASE_URL=http://localhost:11434
+```bash
+npm run typecheck
 ```
 
-## Run
+## Gmail OAuth
 
-Read recent inbox emails, classify them, and print generated draft text without creating Gmail drafts:
+1. Create or open a Google Cloud project.
+2. Enable the Gmail API.
+3. Configure the OAuth consent screen for local testing.
+4. Create OAuth client credentials. A desktop app credential is simplest.
+5. Download the OAuth JSON file.
+6. Save it in the project root as `credentials.json`.
+7. Run:
+
+```bash
+npm run auth:gmail
+```
+
+The command prints an authorization URL. Open it, approve access, paste the returned code, and the app creates `token.json` locally.
+
+Never commit:
+
+- `.env`
+- `credentials.json`
+- `token.json`
+
+These are listed in `.gitignore`.
+
+## Usage
+
+Safe run: read Gmail, classify messages, and print draft text without creating Gmail drafts.
 
 ```bash
 npm run dev
 ```
 
-Override the number of emails:
-
-```bash
-npm run dev -- --max 10
-```
-
-Override the Gmail search query:
+Use a narrow Gmail query:
 
 ```bash
 npm run dev -- --query "in:inbox newer_than:7d"
 ```
 
-Force dry-run mode:
+Limit message count:
 
 ```bash
-npm run dev -- --dry-run
+npm run dev -- --max 5
 ```
 
-Enable Gmail draft creation:
+Create Gmail drafts after approval:
 
 ```bash
 npm run dev -- --create-drafts
 ```
 
-Even when draft creation is enabled, the app asks before each Gmail draft if `REQUIRE_DRAFT_APPROVAL=true`.
+`--create-drafts` enables Gmail draft creation only. It does not send emails unless `SEND_APPROVED_DRAFTS=true`.
 
-## Classification
-
-The app classifies each normalized email as:
-
-- `qualified_prospect`
-- `possible_prospect`
-- `not_a_prospect`
-- `unclear`
-
-A qualified prospect should match most of these:
-
-- Mid-market SaaS company, roughly 50-500 employees.
-- Head of Operations, RevOps Manager, Revenue Operations Manager, Director of Revenue Operations, or a closely related operations role.
-- Interest in automation, integrations, workflow improvements, data sync, or reducing manual data entry.
-- Mentions tools or pain points like HubSpot, Stripe, Salesforce, Jira, reporting, lifecycle ops, pipeline hygiene, handoffs, or manual admin work.
-
-Invalid LLM JSON falls back to `unclear`, and no draft is created.
-
-## Draft Creation Safety
-
-By default:
+To send approved drafts, set:
 
 ```env
-DRY_RUN=true
-CREATE_DRAFTS=false
-REQUIRE_DRAFT_APPROVAL=true
-```
-
-To create drafts, either set:
-
-```env
-CREATE_DRAFTS=true
 DRY_RUN=false
+CREATE_DRAFTS=true
+SEND_APPROVED_DRAFTS=true
+REQUIRE_DRAFT_APPROVAL=true
+REQUIRE_SEND_APPROVAL=true
 ```
 
-or run:
+Then run:
 
 ```bash
-npm run dev -- --create-drafts
+npm run dev -- --query "from:test.sender@example.com newer_than:7d"
 ```
 
-Before creating each draft, the terminal shows the generated message and asks:
+Flow when sending is enabled:
 
 ```txt
-Create Gmail draft for laura@example.com? (y/N)
+Generate draft
+→ ask to create Gmail draft
+→ create draft if approved
+→ ask to send Gmail draft
+→ send only if approved
 ```
 
-Only `y` or `yes` approves. Pressing enter rejects by default.
+## Testing With A Second Gmail
 
-## Test With A Second Gmail Account
-
-Use a second Gmail account to send a fake prospect email into the inbox connected to this app. Then restrict the query:
-
-```env
-GMAIL_QUERY=from:second.test.account@gmail.com newer_than:7d
-```
-
-or:
+Use a second Gmail account to send one fake prospect email into the inbox connected to this app. Then run the agent with a narrow sender query so it does not scan your whole inbox:
 
 ```bash
-npm run dev -- --query "from:second.test.account@gmail.com newer_than:7d"
+npm run dev -- --query "from:your.second.account@gmail.com newer_than:7d" --max 5
 ```
 
-Do not hardcode the test address in the app.
-
-Recommended test email:
-
-Subject:
+Example test email:
 
 ```txt
-Question about HubSpot and Jira workflow
-```
+Subject: Question about HubSpot and Jira workflow
 
-Body:
-
-```txt
 Hi,
 
 I’m Laura Bennett, Head of Revenue Operations at ScaleHub.
@@ -228,73 +191,49 @@ Laura
 Expected result:
 
 - Classification: `qualified_prospect`
-- Company: `ScaleHub`
-- Role: `Head of Revenue Operations`
-- Tools: `HubSpot`, `Stripe`, `Jira`
-- Pain: manual data entry and handoffs
-- Action: generate a draft and request approval before creating a Gmail draft
-
-## Development
-
-Typecheck:
-
-```bash
-npm run typecheck
-```
-
-Authenticate Gmail:
-
-```bash
-npm run auth:gmail
-```
-
-Run the CLI agent:
-
-```bash
-npm run dev
-```
+- Draft text printed in the terminal
+- No Gmail draft if `DRY_RUN=true` or `CREATE_DRAFTS=false`
+- Gmail draft created only after draft approval
+- Email sent only when `SEND_APPROVED_DRAFTS=true` and send approval passes
 
 ## Troubleshooting
 
-If Gmail auth fails:
+Gmail auth fails:
 
-- Confirm the Gmail API is enabled in Google Cloud.
+- Confirm the Gmail API is enabled.
 - Confirm `credentials.json` is in the project root or update `GMAIL_CREDENTIALS_PATH`.
-- Delete `token.json` and rerun `npm run auth:gmail` if scopes changed.
-- Make sure the Google account is allowed by the OAuth consent screen test users.
+- Delete `token.json` and rerun `npm run auth:gmail` if scopes or accounts changed.
+- Confirm your Google account is allowed by the OAuth consent screen.
 
-If Ollama calls fail:
+Ollama fails:
 
 - Run `ollama serve`.
 - Run `ollama pull llama3.2:3b`.
 - Confirm `OLLAMA_BASE_URL=http://localhost:11434`.
-- Try a smaller `MAX_EMAILS` value while testing.
+- Try a smaller `MAX_EMAILS` while testing.
 
-If no emails are found:
+No emails found:
 
 - Check `GMAIL_QUERY`.
 - Try `in:inbox newer_than:30d`.
-- Use the second-account test query to isolate a known message.
+- Use a known sender query from a second Gmail account.
 
-If no drafts are generated:
+Draft generated but Gmail draft not created:
 
-- Check the printed classification and confidence score.
-- Drafts are generated only for `qualified_prospect` or high-confidence `possible_prospect`.
-- Invalid LLM JSON safely falls back to `unclear`.
+- Confirm `DRY_RUN=false`.
+- Confirm `CREATE_DRAFTS=true` or use `--create-drafts`.
+- Confirm you approved the `Create Gmail draft...?` prompt.
 
-## Safety Notes
+Draft created but email not sent:
 
-This app is deliberately narrow. Gmail access is implemented as explicit TypeScript functions, not autonomous tools. The workflow is deterministic:
+- Confirm `SEND_APPROVED_DRAFTS=true`.
+- Confirm `DRY_RUN=false`.
+- Confirm you approved the `Send this Gmail draft now?` prompt.
 
-```txt
-Read Gmail emails
-→ normalize email data
-→ classify each email with Ollama
-→ generate draft text only for qualified prospects
-→ show draft in terminal
-→ ask for approval
-→ create Gmail draft only if approved
-→ print final report
-```
+## Security Notes
 
-The app never sends email.
+- Do not commit `.env`, `credentials.json`, or `token.json`.
+- Keep `DEBUG_LLM_OUTPUT=false` for real inbox data; debug logs may expose private email content and raw model output.
+- Use narrow Gmail queries while testing.
+- This project is for local development and controlled testing, not spam or bulk outreach.
+- LLM output is treated as untrusted: it is parsed, normalized for harmless descriptive-field issues, validated with Zod, and falls back safely when invalid.
