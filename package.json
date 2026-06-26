@@ -1,0 +1,24 @@
+{
+  "name": "gmail-ollama-sdr-agent",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Local Gmail + Ollama SDR drafting agent for safe development.",
+  "scripts": {
+    "dev": "tsx src/index.ts",
+    "auth:gmail": "tsx src/auth.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@langchain/core": "^0.3.75",
+    "@langchain/ollama": "^0.2.4",
+    "dotenv": "^16.4.7",
+    "googleapis": "^144.0.0",
+    "zod": "^3.24.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.5",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2"
+  }
+}
