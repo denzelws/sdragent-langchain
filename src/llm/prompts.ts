@@ -9,12 +9,12 @@ export const classifyProspectPrompt = ChatPromptTemplate.fromMessages([
       "Target buyers are mid-market SaaS companies around 50-500 employees and roles like Head of Operations, RevOps Manager, Revenue Operations Manager, Director of Revenue Operations, or closely related operations roles.",
       "If an email includes most or all of these signals: SaaS company, 50-500 employees, RevOps or Head of Operations role, manual data entry or workflow handoff pain, tools like HubSpot, Stripe, Salesforce, or Jira, and interest in automation, classify it as qualified_prospect with confidenceScore >= 0.85.",
       "Use possible_prospect only when important information is missing or ambiguous.",
-      "companySize must be a string or null. Never return companySize as a number. Use examples like \"240 employees\", \"around 150 employees\", or null.",
+      'companySize must be a string or null. Never return companySize as a number. Use examples like "240 employees", "around 150 employees", or null.',
       "Return only one complete valid JSON object.",
       "Do not return markdown, comments, or explanations outside JSON.",
       "Always close the JSON object.",
-      "Every required field must be present."
-    ].join(" ")
+      "Every required field must be present.",
+    ].join(" "),
   ],
   [
     "human",
@@ -33,9 +33,9 @@ export const classifyProspectPrompt = ChatPromptTemplate.fromMessages([
       "Date: {date}",
       "Snippet: {snippet}",
       "Body:",
-      "{body}"
-    ].join("\n")
-  ]
+      "{body}",
+    ].join("\n"),
+  ],
 ]);
 
 export const generateOutreachDraftPrompt = ChatPromptTemplate.fromMessages([
@@ -45,11 +45,16 @@ export const generateOutreachDraftPrompt = ChatPromptTemplate.fromMessages([
       "You write concise plain-text outbound SDR draft emails.",
       "The seller offers a no-code workflow automation tool for RevOps teams that removes manual data entry between tools like HubSpot, Stripe, Salesforce, and Jira.",
       "Be professional, direct, credible, and personalized. Do not invent facts. Do not include a meeting link. Do not schedule anything.",
+      "The body field must be a readable plain-text email with escaped newline characters.",
+      "Use one greeting line, a blank line after the greeting, 3 to 4 short paragraphs, a blank line between paragraphs, a short CTA paragraph, and a blank line before the signature.",
+      "The signature must be exactly two lines: Best, then the sender name.",
+      "Do not return the email body as one long paragraph.",
+      "Do not use markdown formatting inside the email body: no bullet points, headings, bold markers, or markdown links.",
       "Return only one complete valid JSON object.",
       "Do not return markdown, comments, or explanations outside JSON.",
       "Always close the JSON object.",
-      "Every required field must be present."
-    ].join(" ")
+      "Every required field must be present.",
+    ].join(" "),
   ],
   [
     "human",
@@ -59,6 +64,22 @@ export const generateOutreachDraftPrompt = ChatPromptTemplate.fromMessages([
       "Return only one complete valid JSON object with every required field present.",
       "Do not include markdown, comments, or explanatory text outside the JSON object.",
       "Always include the final closing brace.",
+      "The JSON body string must contain escaped newlines like \\n\\n between paragraphs.",
+      "Use this body structure:",
+      "Hi [prospect first name],",
+      "",
+      "Thanks for reaching out -- the workflow you described between [tools mentioned] is exactly the kind of RevOps handoff that can become painful as a SaaS team grows.",
+      "",
+      "From what you shared, it sounds like your team is dealing with [pain points]. Our no-code workflow automation tool is designed to help RevOps teams connect tools like [tools mentioned] without relying on custom engineering scripts every time the process changes.",
+      "",
+      "For a team like [company name], this could help reduce manual data entry, avoid missed handoffs, and keep customer data consistent across the revenue stack.",
+      "",
+      "Would it be useful if I sent over a short example of how this workflow could be automated?",
+      "",
+      "Best,",
+      "[sender name]",
+      "",
+      "Use the best available prospect name, tools, pain points, and company name from the classification JSON. If the sender name is unknown, use Denzel.",
       "",
       "Original email:",
       "From: {from}",
@@ -66,7 +87,7 @@ export const generateOutreachDraftPrompt = ChatPromptTemplate.fromMessages([
       "Body: {body}",
       "",
       "Classification JSON:",
-      "{classificationJson}"
-    ].join("\n")
-  ]
+      "{classificationJson}",
+    ].join("\n"),
+  ],
 ]);

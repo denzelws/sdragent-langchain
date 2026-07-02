@@ -9,16 +9,21 @@ function encodeMessage(rawMessage: string): string {
     .replace(/=+$/g, "");
 }
 
+function normalizePlainTextBody(body: string): string {
+  return body.replace(/\r\n/g, "\n").replace(/\r/g, "\n").replace(/\n/g, "\r\n");
+}
+
 export async function createGmailDraft(
   gmail: gmail_v1.Gmail,
   draft: OutreachDraft
 ): Promise<string> {
+  const normalizedBody = normalizePlainTextBody(draft.body);
   const rawMessage = [
     `To: ${draft.to}`,
     `Subject: ${draft.subject}`,
     "Content-Type: text/plain; charset=utf-8",
     "",
-    draft.body
+    normalizedBody
   ].join("\r\n");
 
   const response = await gmail.users.drafts.create({
