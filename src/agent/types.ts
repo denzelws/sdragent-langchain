@@ -14,4 +14,7 @@ export type AgentReport = {
   draftsGenerated: number;
   draftsCreated: number;
   emailsSent: number;
+  meetingInvitationsDetected: number;
+  calendarConflictsFound: number;
+  calendarEventsCreated: number;
 };

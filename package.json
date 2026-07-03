@@ -7,7 +7,11 @@
   "scripts": {
     "dev": "tsx src/index.ts",
     "auth:gmail": "tsx src/auth.ts",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test:meeting:001": "tsx src/index.ts --query \"from:sanmutty@gmail.com subject:MEETING_TEST_001 newer_than:7d\" --max 1",
+    "test:meeting:002": "tsx src/index.ts --query \"from:sanmutty@gmail.com subject:MEETING_TEST_002 newer_than:7d\" --max 1",
+    "test:meeting:003": "tsx src/index.ts --query \"from:sanmutty@gmail.com subject:MEETING_TEST_003 newer_than:7d\" --max 1",
+    "test:meeting:batch": "tsx src/index.ts --query \"from:sanmutty@gmail.com subject:MEETING_TEST newer_than:7d\" --max 3"
   },
   "dependencies": {
     "@langchain/core": "^0.3.75",

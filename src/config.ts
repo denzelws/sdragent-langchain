@@ -5,6 +5,7 @@ dotenv.config();
 export type AppConfig = {
   ollamaModel: string;
   ollamaBaseUrl: string;
+  senderName: string;
   gmailCredentialsPath: string;
   gmailTokenPath: string;
   gmailQuery: string;
@@ -14,6 +15,10 @@ export type AppConfig = {
   requireDraftApproval: boolean;
   sendApprovedDrafts: boolean;
   requireSendApproval: boolean;
+  enableMeetingWorkflow: boolean;
+  createCalendarEvents: boolean;
+  requireCalendarEventApproval: boolean;
+  defaultTimezone: string;
   debugLlmOutput: boolean;
 };
 
@@ -40,6 +45,7 @@ export function loadConfig(): AppConfig {
   return {
     ollamaModel: process.env.OLLAMA_MODEL ?? "llama3.2:3b",
     ollamaBaseUrl: process.env.OLLAMA_BASE_URL ?? "http://localhost:11434",
+    senderName: process.env.SENDER_NAME?.trim() || "Denzel",
     gmailCredentialsPath: process.env.GMAIL_CREDENTIALS_PATH ?? "./credentials.json",
     gmailTokenPath: process.env.GMAIL_TOKEN_PATH ?? "./token.json",
     gmailQuery: process.env.GMAIL_QUERY ?? DEFAULT_GMAIL_QUERY,
@@ -49,6 +55,13 @@ export function loadConfig(): AppConfig {
     requireDraftApproval: parseBoolean(process.env.REQUIRE_DRAFT_APPROVAL, true),
     sendApprovedDrafts: parseBoolean(process.env.SEND_APPROVED_DRAFTS, false),
     requireSendApproval: parseBoolean(process.env.REQUIRE_SEND_APPROVAL, true),
+    enableMeetingWorkflow: parseBoolean(process.env.ENABLE_MEETING_WORKFLOW, false),
+    createCalendarEvents: parseBoolean(process.env.CREATE_CALENDAR_EVENTS, false),
+    requireCalendarEventApproval: parseBoolean(
+      process.env.REQUIRE_CALENDAR_EVENT_APPROVAL,
+      true
+    ),
+    defaultTimezone: process.env.DEFAULT_TIMEZONE ?? "America/Sao_Paulo",
     debugLlmOutput: parseBoolean(process.env.DEBUG_LLM_OUTPUT, false)
   };
 }

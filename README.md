@@ -99,6 +99,8 @@ npm run auth:gmail
 
 The command prints an authorization URL. Open it, approve access, paste the returned code, and the app creates `token.json` locally.
 
+If you enabled this project before Calendar support was added, delete `token.json` and rerun `npm run auth:gmail` so Google can grant the Calendar event scope.
+
 Never commit:
 
 - `.env`
