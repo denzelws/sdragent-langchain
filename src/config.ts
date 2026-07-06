@@ -2,6 +2,8 @@ import dotenv from "dotenv";
 
 dotenv.config();
 
+export type WorkflowMode = "all" | "meeting" | "product-faq" | "sdr";
+
 export type AppConfig = {
   ollamaModel: string;
   ollamaBaseUrl: string;
@@ -10,6 +12,9 @@ export type AppConfig = {
   gmailTokenPath: string;
   gmailQuery: string;
   maxEmails: number;
+  workflowMode: WorkflowMode;
+  skipProcessedEmails: boolean;
+  processedEmailStorePath: string;
   dryRun: boolean;
   createDrafts: boolean;
   requireDraftApproval: boolean;
@@ -23,6 +28,7 @@ export type AppConfig = {
 };
 
 const DEFAULT_GMAIL_QUERY = "in:inbox newer_than:7d";
+const WORKFLOW_MODES = new Set(["all", "meeting", "product-faq", "sdr"]);
 
 function parseBoolean(value: string | undefined, fallback: boolean): boolean {
   if (value === undefined) {
@@ -41,6 +47,20 @@ function parseNumber(value: string | undefined, fallback: number): number {
   return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
 }
 
+function parseWorkflowMode(value: string | undefined): WorkflowMode {
+  if (!value) {
+    return "all";
+  }
+
+  const normalized = value.trim();
+  if (WORKFLOW_MODES.has(normalized)) {
+    return normalized as WorkflowMode;
+  }
+
+  console.warn(`Invalid WORKFLOW_MODE "${value}". Defaulting to "all".`);
+  return "all";
+}
+
 export function loadConfig(): AppConfig {
   return {
     ollamaModel: process.env.OLLAMA_MODEL ?? "llama3.2:3b",
@@ -50,6 +70,10 @@ export function loadConfig(): AppConfig {
     gmailTokenPath: process.env.GMAIL_TOKEN_PATH ?? "./token.json",
     gmailQuery: process.env.GMAIL_QUERY ?? DEFAULT_GMAIL_QUERY,
     maxEmails: parseNumber(process.env.MAX_EMAILS, 10),
+    workflowMode: parseWorkflowMode(process.env.WORKFLOW_MODE),
+    skipProcessedEmails: parseBoolean(process.env.SKIP_PROCESSED_EMAILS, true),
+    processedEmailStorePath:
+      process.env.PROCESSED_EMAIL_STORE_PATH ?? "./.agent-state/processed-emails.json",
     dryRun: parseBoolean(process.env.DRY_RUN, true),
     createDrafts: parseBoolean(process.env.CREATE_DRAFTS, false),
     requireDraftApproval: parseBoolean(process.env.REQUIRE_DRAFT_APPROVAL, true),

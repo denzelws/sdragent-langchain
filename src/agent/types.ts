@@ -10,6 +10,7 @@ export type ProcessedEmail = {
 
 export type AgentReport = {
   readCount: number;
+  alreadyProcessedSkipped: number;
   classifiedCount: number;
   draftsGenerated: number;
   draftsCreated: number;
@@ -17,4 +18,6 @@ export type AgentReport = {
   meetingInvitationsDetected: number;
   calendarConflictsFound: number;
   calendarEventsCreated: number;
+  productQuestionsDetected: number;
+  productFaqDraftsGenerated: number;
 };

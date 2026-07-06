@@ -192,3 +192,66 @@ Not implemented:
 - Conflict detection
 - Calendar event creation
 - Meeting acceptance/regrets/clarification reply generation
+
+## Product FAQ Skill Workflow
+
+```txt
+[Trigger: Gmail email found]
+↓
+[Normalize email]
+↓
+[Meeting workflow if enabled]
+↓
+[LLM: detect product/pricing/policy question]
+↓
+[Zod: validate product question detection]
+↓
+[Decision: product question with enough confidence?]
+├── No
+│   └── [Continue to SDR prospect workflow]
+└── Yes
+    ↓
+    [Load skill: skills/product-faq/SKILL.md]
+    ↓
+    [LLM: generate Product FAQ reply using skill markdown]
+    ↓
+    [Zod: validate draft]
+    ↓
+    [Show draft in terminal]
+    ↓
+    [Approval: create Gmail draft?]
+    ↓
+    [Optional approval: send Gmail draft?]
+    ↓
+    [Final report]
+```
+
+Manual test email:
+
+```txt
+Subject: [PRODUCT_FAQ_TEST_001] Pricing question
+
+Hi Denzel,
+
+Can you explain the difference between Starter and Growth?
+Also, do you offer a free trial?
+
+Best,
+Laura
+```
+
+Run:
+
+```bash
+npm run test:product-faq:001
+```
+
+Expected behavior:
+
+- Product FAQ skill loaded
+- Product question detected
+- Starter and Growth answered correctly
+- 14-day free trial mentioned
+- 15-minute call offered
+- Gmail draft created only after approval
+- Email sent only after send approval, if sending is enabled

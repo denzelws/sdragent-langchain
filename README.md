@@ -163,6 +163,59 @@ Generate draft
 → send only if approved
 ```
 
+## Processed Email State
+
+The agent can remember processed Gmail message IDs across runs so the same recent emails are not handled repeatedly.
+
+Default state file:
+
+```txt
+.agent-state/processed-emails.json
+```
+
+The state file stores safe metadata only: message id, thread id, sender, subject, workflow, status, reason, and timestamp. It does not store full email bodies, Gmail tokens, or credentials.
+
+Clear local state:
+
+```bash
+npm run state:clear
+```
+
+Relevant settings:
+
+```env
+SKIP_PROCESSED_EMAILS=true
+PROCESSED_EMAIL_STORE_PATH=./.agent-state/processed-emails.json
+```
+
+## Workflow Mode
+
+Use `WORKFLOW_MODE` to run only one workflow during development.
+
+Available modes:
+
+```txt
+all
+meeting
+product-faq
+sdr
+```
+
+Example Product FAQ testing config:
+
+```env
+GMAIL_QUERY=from:sanmutty@gmail.com newer_than:7d
+MAX_EMAILS=10
+WORKFLOW_MODE=product-faq
+SKIP_PROCESSED_EMAILS=true
+DRY_RUN=false
+CREATE_DRAFTS=true
+SEND_APPROVED_DRAFTS=false
+DEBUG_LLM_OUTPUT=true
+```
+
+In `product-faq` mode, Meeting and SDR workflows do not run. Emails that do not match Product FAQ are still marked processed so they do not reappear on every development run.
+
 ## Testing With A Second Gmail
 
 Use a second Gmail account to send one fake prospect email into the inbox connected to this app. Then run the agent with a narrow sender query so it does not scan your whole inbox:

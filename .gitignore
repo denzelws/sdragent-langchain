@@ -8,3 +8,4 @@ token.json
 npm-debug.log*
 .DS_Store
 .vscode/
+.agent-state/
