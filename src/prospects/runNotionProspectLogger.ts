@@ -36,27 +36,27 @@ function mergeRows(current: ProspectNotionRow, candidate: ProspectNotionRow): Pr
   };
 }
 
-function deduplicateProspects(rows: ProspectNotionRow[]): ProspectNotionRow[] {
-  const byEmail = new Map<string, ProspectNotionRow>();
-  for (const row of rows) {
-    const key = row.email.toLowerCase();
-    const current = byEmail.get(key);
-    byEmail.set(key, current ? mergeRows(current, row) : row);
-  }
+function getDedupeKey(row: ProspectNotionRow): string {
+  // Gmail thread ID is the primary identity. In local tests, many fake prospects can
+  // come from the same sender email, so email-only dedupe would merge unrelated leads.
+  return row.gmailThreadId ? `thread:${row.gmailThreadId}` : `email:${row.email.toLowerCase()}`;
+}
 
-  const byThread = new Map<string, ProspectNotionRow>();
-  const withoutThread: ProspectNotionRow[] = [];
-  for (const row of byEmail.values()) {
-    if (!row.gmailThreadId) {
-      withoutThread.push(row);
-      continue;
+function deduplicateProspects(rows: ProspectNotionRow[], debug: boolean): ProspectNotionRow[] {
+  const byKey = new Map<string, ProspectNotionRow>();
+
+  for (const row of rows) {
+    const key = getDedupeKey(row);
+
+    if (debug) {
+      logger.info(`Dedupe key: ${key}`);
     }
 
-    const current = byThread.get(row.gmailThreadId);
-    byThread.set(row.gmailThreadId, current ? mergeRows(current, row) : row);
+    const current = byKey.get(key);
+    byKey.set(key, current ? mergeRows(current, row) : row);
   }
 
-  return [...byThread.values(), ...withoutThread].sort(
+  return [...byKey.values()].sort(
     (left, right) => new Date(right.lastSeen).getTime() - new Date(left.lastSeen).getTime()
   );
 }
@@ -150,7 +150,7 @@ async function main(): Promise<void> {
       }
     }
 
-    const dedupedRows = deduplicateProspects(candidates);
+    const dedupedRows = deduplicateProspects(candidates, config.debugLlmOutput);
     const report: ProspectLoggerReport = {
       emailsRead: emails.length,
       prospectsExtracted: candidates.length,
@@ -160,7 +160,7 @@ async function main(): Promise<void> {
     };
 
     logger.info(`Extracted ${candidates.length} prospect row(s).`);
-    logger.info(`Deduplicated to ${dedupedRows.length} prospect row(s).`);
+    logger.info(`Deduplicated by Gmail Thread ID to ${dedupedRows.length} prospect row(s).`);
 
     if (dedupedRows.length > 0) {
       printProspectPreview(dedupedRows);
@@ -194,7 +194,7 @@ async function main(): Promise<void> {
     logger.info("\nNotion prospect logger report");
     logger.info(`Emails read: ${report.emailsRead}`);
     logger.info(`Prospects extracted: ${report.prospectsExtracted}`);
-    logger.info(`Prospects after dedupe: ${report.prospectsAfterDedupe}`);
+    logger.info(`Prospects after thread dedupe: ${report.prospectsAfterDedupe}`);
     logger.info(`Rows created: ${report.rowsCreated}`);
     logger.info(`Rows skipped existing: ${report.rowsSkippedExisting}`);
     logger.info(`Rows written total: ${report.rowsCreated}`);
