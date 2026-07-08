@@ -14,7 +14,8 @@
     "test:meeting:003": "tsx src/index.ts --query \"from:sanmutty@gmail.com subject:MEETING_TEST_003 newer_than:7d\" --max 1",
     "test:meeting:batch": "tsx src/index.ts --query \"from:sanmutty@gmail.com subject:MEETING_TEST newer_than:7d\" --max 3",
     "test:product-faq:001": "tsx src/index.ts --query \"from:sanmutty@gmail.com newer_than:7d\" --max 1",
-    "notion:prospects": "tsx src/prospects/runNotionProspectLogger.ts"
+    "notion:prospects": "tsx src/prospects/runNotionProspectLogger.ts",
+    "prospects:notion": "npm run notion:prospects"
   },
   "dependencies": {
     "@langchain/core": "^0.3.75",
