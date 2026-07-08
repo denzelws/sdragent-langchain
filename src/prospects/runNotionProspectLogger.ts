@@ -9,6 +9,7 @@ import { NotionMcpClient } from "../notion/notionMcpClient.js";
 import { createOllamaProvider } from "../llm/ollamaProvider.js";
 import { logger } from "../utils/logger.js";
 import { askForApproval } from "../utils/terminalApproval.js";
+import { enrichProspectRows } from "./enrichProspectRows.js";
 import { extractProspectForNotion } from "./extractProspectForNotion.js";
 import type { NotionDatabaseRef } from "../notion/types.js";
 import type { ProspectNotionRow } from "./types.js";
@@ -16,6 +17,8 @@ import type { ProspectNotionRow } from "./types.js";
 type ProspectLoggerReport = {
   emailsRead: number;
   prospectsExtracted: number;
+  prospectCompaniesCorrected: number;
+  prospectsEnriched: number;
   prospectsAfterDedupe: number;
   rowsCreated: number;
   rowsSkippedExisting: number;
@@ -184,16 +187,24 @@ async function main(): Promise<void> {
       }
     }
 
-    const dedupedRows = deduplicateProspects(candidates, config.debugLlmOutput);
+    const enrichmentResult = enrichProspectRows(candidates);
+    const enrichedRows = enrichmentResult.rows;
+    const dedupedRows = deduplicateProspects(enrichedRows, config.debugLlmOutput);
     const report: ProspectLoggerReport = {
       emailsRead: emails.length,
       prospectsExtracted: candidates.length,
+      prospectCompaniesCorrected: enrichmentResult.companiesCorrected,
+      prospectsEnriched: enrichmentResult.companiesEnriched,
       prospectsAfterDedupe: dedupedRows.length,
       rowsCreated: 0,
       rowsSkippedExisting: 0
     };
 
     logger.info(`Extracted ${candidates.length} prospect row(s).`);
+    logger.info(`Corrected ${enrichmentResult.companiesCorrected} tool-like company value(s).`);
+    logger.info(
+      `Enriched ${enrichmentResult.companiesEnriched} prospect row(s) from related batch evidence.`
+    );
     logger.info(`Deduplicated by Gmail Thread ID to ${dedupedRows.length} prospect row(s).`);
 
     if (dedupedRows.length > 0) {
@@ -238,6 +249,8 @@ async function main(): Promise<void> {
     logger.info("\nNotion prospect logger report");
     logger.info(`Emails read: ${report.emailsRead}`);
     logger.info(`Prospects extracted: ${report.prospectsExtracted}`);
+    logger.info(`Prospect companies corrected: ${report.prospectCompaniesCorrected}`);
+    logger.info(`Prospects enriched: ${report.prospectsEnriched}`);
     logger.info(`Prospects after thread dedupe: ${report.prospectsAfterDedupe}`);
     logger.info(`Rows created: ${report.rowsCreated}`);
     logger.info(`Rows skipped existing: ${report.rowsSkippedExisting}`);
