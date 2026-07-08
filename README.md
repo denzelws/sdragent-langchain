@@ -226,6 +226,12 @@ Command:
 npm run notion:prospects
 ```
 
+Alias:
+
+```bash
+npm run prospects:notion
+```
+
 Required config:
 
 ```env
@@ -237,7 +243,7 @@ NOTION_PROSPECTS_DATABASE_TITLE=Prospects
 NOTION_PROSPECTS_DATABASE_ID=
 NOTION_WRITE_ENABLED=false
 REQUIRE_NOTION_WRITE_APPROVAL=true
-NOTION_PROSPECT_GMAIL_QUERY=from:sanmutty@gmail.com newer_than:7d -subject:MEETING_TEST
+NOTION_PROSPECT_GMAIL_QUERY=from:sanmutty@gmail.com newer_than:7d subject:"MEETING_TEST"
 NOTION_PROSPECT_MAX_EMAILS=10
 NOTION_MCP_TOOL_SEARCH=
 NOTION_MCP_TOOL_CREATE_PAGE=
@@ -254,6 +260,8 @@ Safety:
 - The workflow stores only structured prospect fields in Notion, not full Gmail bodies.
 - If MCP tool names cannot be resolved, the command prints available tools and stops.
 - Repeated runs create new rows only when no existing row is found by email or Gmail thread id.
+
+For local smoke tests, the Gmail query is only the retrieval scope. The workflow still decides whether each returned email is a prospect based on the email content.
 
 ## Testing With A Second Gmail
 
