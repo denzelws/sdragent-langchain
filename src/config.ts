@@ -29,6 +29,7 @@ export type AppConfig = {
   notionMcpServerCommand: string | null;
   notionMcpServerArgs: string[];
   notionParentPageId: string | null;
+  notionSdrPageId: string | null;
   notionSdrPageTitle: string;
   notionProspectsDatabaseTitle: string;
   notionProspectsDatabaseId: string | null;
@@ -125,6 +126,7 @@ export function loadConfig(): AppConfig {
     notionMcpServerCommand: parseOptionalString(process.env.NOTION_MCP_SERVER_COMMAND),
     notionMcpServerArgs: parseCommaSeparatedArgs(process.env.NOTION_MCP_SERVER_ARGS),
     notionParentPageId: parseOptionalString(process.env.NOTION_PARENT_PAGE_ID),
+    notionSdrPageId: parseOptionalString(process.env.NOTION_SDR_PAGE_ID),
     notionSdrPageTitle: process.env.NOTION_SDR_PAGE_TITLE?.trim() || "SDRAgent",
     notionProspectsDatabaseTitle:
       process.env.NOTION_PROSPECTS_DATABASE_TITLE?.trim() || "Prospects",

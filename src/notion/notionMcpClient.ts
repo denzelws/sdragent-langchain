@@ -194,7 +194,7 @@ function normalizeMcpResult(result: unknown): unknown {
   return result;
 }
 
-function resultToText(result: unknown): string {
+function extractTextFromMcpResult(result: unknown): string {
   const normalized = normalizeMcpResult(result);
 
   if (typeof normalized === "string") {
@@ -323,7 +323,7 @@ function parseFirstIdFromResult(result: unknown): string | null {
     return objectId;
   }
 
-  const text = resultToText(result);
+  const text = extractTextFromMcpResult(result);
   return (
     text.match(/(?:page|database|block):\/\/([a-f0-9-]{32,36})/i)?.[1] ??
     text.match(/\b([a-f0-9]{32}|[a-f0-9-]{36})\b/i)?.[1] ??
@@ -331,9 +331,16 @@ function parseFirstIdFromResult(result: unknown): string | null {
   );
 }
 
+function parseDataSourceUrlFromText(text: string): string | null {
+  return (
+    text.match(/<data-source\s+[^>]*url=["'](collection:\/\/[^"']+)["'][^>]*\/?>/i)?.[1] ??
+    text.match(/\b(collection:\/\/[a-z0-9-]{8,})\b/i)?.[1] ??
+    null
+  );
+}
+
 function parseFirstDataSourceUrl(result: unknown): string | null {
-  const text = resultToText(result);
-  return text.match(/<data-source\s+url="(collection:\/\/[^"]+)"/i)?.[1] ?? null;
+  return parseDataSourceUrlFromText(extractTextFromMcpResult(result));
 }
 
 function parseDataSourceIdFromUrl(url: string | null): string | null {
@@ -505,8 +512,39 @@ function assertDisallowedMapping(
   );
 }
 
-function escapeSql(value: string): string {
-  return value.replace(/'/g, "''");
+function hasRowsInQueryResult(result: unknown): boolean {
+  const normalized = normalizeMcpResult(result);
+  const objects = collectObjects(normalized);
+  if (objects.some((object) => typeof object.id === "string")) {
+    return true;
+  }
+
+  const text = extractTextFromMcpResult(result).trim();
+  if (!text || /\b(no results|0 rows|empty|not found)\b/i.test(text)) {
+    return false;
+  }
+
+  const lines = text
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean);
+  const tableRows = lines.filter((line) => line.startsWith("|") && line.endsWith("|"));
+  if (tableRows.length > 2) {
+    return true;
+  }
+
+  return false;
+}
+
+function logResolvedDatabase(database: NotionDatabaseRef, debug: boolean): void {
+  if (!debug) {
+    return;
+  }
+
+  logger.info(`Created/found database id: ${database.id}`);
+  logger.info(`Created/found database title: ${database.title}`);
+  logger.info(`Resolved data source URL: ${database.dataSourceUrl ?? "(missing)"}`);
+  logger.info(`Resolved data source ID: ${database.dataSourceId ?? "(missing)"}`);
 }
 
 export class NotionMcpClient {
@@ -673,7 +711,20 @@ export class NotionMcpClient {
     );
     const result = await this.callTool(tool, "find database by title", { query: title });
     const refs = findDatabaseRefsByTitle(result, title, parentPageId, this.debug);
-    return refs[0] ?? null;
+    const database = refs[0] ?? null;
+    if (!database) {
+      return null;
+    }
+
+    try {
+      const fetched = await this.fetchDatabaseDataSource(database);
+      return fetched;
+    } catch (error) {
+      if (this.debug) {
+        logger.warn(`Could not resolve data source from found database: ${(error as Error).message}`);
+      }
+      return database;
+    }
   }
 
   async fetchDatabaseDataSource(database: NotionDatabaseRef): Promise<NotionDatabaseRef> {
@@ -699,11 +750,13 @@ export class NotionMcpClient {
       );
     }
 
-    return {
+    const resolved = {
       ...database,
       dataSourceId,
       dataSourceUrl
     };
+    logResolvedDatabase(resolved, this.debug);
+    return resolved;
   }
 
   async createProspectsDatabase(
@@ -729,13 +782,42 @@ export class NotionMcpClient {
     if (!id) {
       throw new Error("Notion database was created but no database id was returned by the MCP tool.");
     }
-    if (!dataSourceId || !dataSourceUrl) {
-      throw new Error(
-        "Notion database was created, but no data source ID was returned. Fetch the database or configure NOTION_PROSPECTS_DATA_SOURCE_ID."
-      );
+
+    if (dataSourceId && dataSourceUrl) {
+      const database = { id, title, kind: "database" as const, dataSourceId, dataSourceUrl };
+      logResolvedDatabase(database, this.debug);
+      return database;
     }
 
-    return { id, title, kind: "database", dataSourceId, dataSourceUrl };
+    if (this.debug) {
+      logger.warn("Could not parse data source ID from create-database result.");
+      logger.warn("Trying notion-fetch fallback...");
+    }
+
+    try {
+      const fetched = await this.fetchDatabaseDataSource({
+        id,
+        title,
+        kind: "database",
+        dataSourceId: null,
+        dataSourceUrl: null
+      });
+      return fetched;
+    } catch (error) {
+      if (this.debug) {
+        logger.warn(`Could not parse data source ID from fetch result: ${(error as Error).message}`);
+        logger.warn("Trying database search fallback...");
+      }
+    }
+
+    const found = await this.findDatabaseByTitle(title, parentPageId);
+    if (found?.dataSourceId && found.dataSourceUrl) {
+      return found;
+    }
+
+    throw new Error(
+      "Notion database was created, but no data source ID was returned. Fetch/search did not include a <data-source> tag. Set NOTION_PROSPECTS_DATA_SOURCE_ID manually or inspect the Notion MCP fetch output."
+    );
   }
 
   async findExistingProspectRow(
@@ -753,29 +835,38 @@ export class NotionMcpClient {
       this.tools,
       "NOTION_MCP_TOOL_QUERY_DATA_SOURCES"
     );
-    const filters = [`"Email" = '${escapeSql(row.email)}'`];
+    const dataSourceUrl = database.dataSourceUrl;
+    let sql: string;
+    let params: string[];
+
     if (row.gmailThreadId) {
-      filters.push(`"Gmail Thread ID" = '${escapeSql(row.gmailThreadId)}'`);
+      sql = `SELECT * FROM "${dataSourceUrl}" WHERE "Gmail Thread ID" = ? LIMIT 1`;
+      params = [row.gmailThreadId];
+    } else if (row.sourceSubject) {
+      sql = `SELECT * FROM "${dataSourceUrl}" WHERE Email = ? AND "Source Subject" = ? LIMIT 1`;
+      params = [row.email, row.sourceSubject];
+    } else {
+      sql = `SELECT * FROM "${dataSourceUrl}" WHERE Email = ? LIMIT 1`;
+      params = [row.email];
     }
 
-    try {
-      const result = await this.callTool(tool, "find existing prospect row", {
-        data_source_url: database.dataSourceUrl,
-        query: `SELECT * WHERE ${filters.join(" OR ")} LIMIT 1`
-      });
-
-      const text = resultToText(result).toLowerCase();
-      if (!text.includes(row.email.toLowerCase()) && !text.includes((row.gmailThreadId ?? "").toLowerCase())) {
-        return null;
+    const result = await this.callTool(tool, "find existing prospect row", {
+      data: {
+        data_source_urls: [dataSourceUrl],
+        query: sql,
+        params
       }
+    });
 
-      return parseFirstIdFromResult(result);
-    } catch (error) {
-      logger.warn(
-        `Could not query existing Notion rows; continuing create-only after approval: ${(error as Error).message}`
-      );
+    if (this.debug) {
+      logger.info(`Existing-row query returned rows: ${hasRowsInQueryResult(result)}`);
+    }
+
+    if (!hasRowsInQueryResult(result)) {
       return null;
     }
+
+    return parseFirstIdFromResult(result) ?? "existing";
   }
 
   async createProspectRow(
@@ -783,7 +874,9 @@ export class NotionMcpClient {
     row: ProspectNotionRow
   ): Promise<NotionProspectWriteResult> {
     if (!database.dataSourceId) {
-      throw new Error("A Notion data source ID is required to create prospect rows.");
+      throw new Error(
+        "Cannot create Notion prospect rows because the Prospects database data source ID is missing. Fetch the database result did not include a <data-source> tag. Set NOTION_PROSPECTS_DATA_SOURCE_ID manually or inspect the Notion MCP fetch output."
+      );
     }
 
     const tool = requireTool(

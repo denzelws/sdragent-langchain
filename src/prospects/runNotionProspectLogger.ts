@@ -115,24 +115,49 @@ async function main(): Promise<void> {
       logger.info(notion.getFormattedToolMapping());
     }
 
-    const existingSdrPage = await notion.findPageByTitle(config.notionSdrPageTitle);
+    const existingSdrPage = config.notionSdrPageId
+      ? {
+          id: config.notionSdrPageId,
+          title: config.notionSdrPageTitle
+        }
+      : await notion.findPageByTitle(config.notionSdrPageTitle);
+    if (config.notionSdrPageId) {
+      logger.info(`Using configured SDRAgent page ID: ${config.notionSdrPageId}`);
+    }
+
     let existingDatabase: NotionDatabaseRef | null = null;
     if (existingSdrPage) {
       logger.info(`Found SDRAgent page: ${existingSdrPage.id}`);
-      existingDatabase = config.notionProspectsDatabaseId
+      existingDatabase = config.notionProspectsDataSourceId
+        ? {
+            id: config.notionProspectsDatabaseId ?? config.notionProspectsDataSourceId,
+            title: config.notionProspectsDatabaseTitle,
+            kind: "database" as const,
+            dataSourceId: config.notionProspectsDataSourceId,
+            dataSourceUrl: `collection://${config.notionProspectsDataSourceId}`
+          }
+        : config.notionProspectsDatabaseId
         ? {
             id: config.notionProspectsDatabaseId,
             title: config.notionProspectsDatabaseTitle,
             kind: "database" as const,
-            dataSourceId: config.notionProspectsDataSourceId,
-            dataSourceUrl: config.notionProspectsDataSourceId
-              ? `collection://${config.notionProspectsDataSourceId}`
-              : null
+            dataSourceId: null,
+            dataSourceUrl: null
           }
         : await notion.findDatabaseByTitle(
             config.notionProspectsDatabaseTitle,
             existingSdrPage.id
           );
+      if (config.notionProspectsDataSourceId) {
+        logger.info(
+          `Using configured Prospects data source ID: ${config.notionProspectsDataSourceId}`
+        );
+      } else if (config.notionProspectsDatabaseId) {
+        logger.info(
+          `Using configured Prospects database ID: ${config.notionProspectsDatabaseId}`
+        );
+      }
+
       if (existingDatabase) {
         logger.info(`Found Prospects database/table: ${existingDatabase.id}`);
       } else {

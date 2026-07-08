@@ -9,17 +9,27 @@ export async function createProspectRows(
   rows: ProspectNotionRow[]
 ): Promise<NotionProspectWriteResult[]> {
   const results: NotionProspectWriteResult[] = [];
+  let existingRowLookupDisabled = false;
 
   for (const row of rows) {
-    const existingId = await notion.findExistingProspectRow(database, row);
-    if (existingId) {
-      logger.info(`Prospect already exists in Notion, skipping: ${row.email}`);
-      results.push({
-        row,
-        notionId: existingId,
-        status: "skipped_existing"
-      });
-      continue;
+    if (!existingRowLookupDisabled) {
+      try {
+        const existingId = await notion.findExistingProspectRow(database, row);
+        if (existingId) {
+          const identity = row.gmailThreadId ?? row.email;
+          logger.info(`Skipped existing prospect row: ${identity}`);
+          results.push({
+            row,
+            notionId: existingId,
+            status: "skipped_existing"
+          });
+          continue;
+        }
+      } catch (error) {
+        existingRowLookupDisabled = true;
+        logger.warn("Could not query existing Notion rows. Continuing create-only after approval.");
+        logger.warn(`Reason: ${(error as Error).message}`);
+      }
     }
 
     const result = await notion.createProspectRow(database, row);

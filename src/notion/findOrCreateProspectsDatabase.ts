@@ -11,7 +11,9 @@ export async function findOrCreateProspectsDatabase(
 ): Promise<NotionDatabaseRef> {
   if (config.notionProspectsDataSourceId) {
     const dataSourceUrl = `collection://${config.notionProspectsDataSourceId}`;
-    logger.info(`Using configured Notion prospects data source id: ${config.notionProspectsDataSourceId}`);
+    logger.info(
+      `Using configured Prospects data source ID: ${config.notionProspectsDataSourceId}`
+    );
     return {
       id: config.notionProspectsDatabaseId ?? config.notionProspectsDataSourceId,
       title: config.notionProspectsDatabaseTitle,
@@ -23,7 +25,7 @@ export async function findOrCreateProspectsDatabase(
 
   if (config.notionProspectsDatabaseId) {
     logger.info(
-      `Using configured Notion prospects database id: ${config.notionProspectsDatabaseId}`
+      `Using configured Prospects database ID: ${config.notionProspectsDatabaseId}`
     );
     return notion.fetchDatabaseDataSource({
       id: config.notionProspectsDatabaseId,

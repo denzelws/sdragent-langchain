@@ -8,6 +8,14 @@ export async function findOrCreateSdrPage(
   notion: NotionMcpClient,
   config: AppConfig
 ): Promise<NotionPageRef> {
+  if (config.notionSdrPageId) {
+    logger.info(`Using configured SDRAgent page ID: ${config.notionSdrPageId}`);
+    return {
+      id: config.notionSdrPageId,
+      title: config.notionSdrPageTitle
+    };
+  }
+
   const existing = await notion.findPageByTitle(config.notionSdrPageTitle);
   if (existing) {
     logger.info(`Found Notion page: ${existing.title} (${existing.id})`);
