@@ -11,7 +11,7 @@ export async function createProspectRows(
   const results: NotionProspectWriteResult[] = [];
 
   for (const row of rows) {
-    const existingId = await notion.findExistingProspectRow(database.id, row);
+    const existingId = await notion.findExistingProspectRow(database, row);
     if (existingId) {
       logger.info(`Prospect already exists in Notion, skipping: ${row.email}`);
       results.push({
@@ -22,7 +22,7 @@ export async function createProspectRows(
       continue;
     }
 
-    const result = await notion.createProspectRow(database.id, row);
+    const result = await notion.createProspectRow(database, row);
     results.push(result);
     logger.info(`Created prospect row in Notion: ${row.email}`);
   }

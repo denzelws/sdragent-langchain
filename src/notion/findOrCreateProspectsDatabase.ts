@@ -9,15 +9,29 @@ export async function findOrCreateProspectsDatabase(
   sdrPage: NotionPageRef,
   config: AppConfig
 ): Promise<NotionDatabaseRef> {
+  if (config.notionProspectsDataSourceId) {
+    const dataSourceUrl = `collection://${config.notionProspectsDataSourceId}`;
+    logger.info(`Using configured Notion prospects data source id: ${config.notionProspectsDataSourceId}`);
+    return {
+      id: config.notionProspectsDatabaseId ?? config.notionProspectsDataSourceId,
+      title: config.notionProspectsDatabaseTitle,
+      kind: "database",
+      dataSourceId: config.notionProspectsDataSourceId,
+      dataSourceUrl
+    };
+  }
+
   if (config.notionProspectsDatabaseId) {
     logger.info(
       `Using configured Notion prospects database id: ${config.notionProspectsDatabaseId}`
     );
-    return {
+    return notion.fetchDatabaseDataSource({
       id: config.notionProspectsDatabaseId,
       title: config.notionProspectsDatabaseTitle,
-      kind: "database"
-    };
+      kind: "database",
+      dataSourceId: null,
+      dataSourceUrl: null
+    });
   }
 
   const existing = await notion.findDatabaseByTitle(
@@ -26,7 +40,7 @@ export async function findOrCreateProspectsDatabase(
   );
   if (existing) {
     logger.info(`Found Notion database: ${existing.title} (${existing.id})`);
-    return existing;
+    return notion.fetchDatabaseDataSource(existing);
   }
 
   if (!config.notionWriteEnabled) {

@@ -12,6 +12,15 @@ import type {
 
 type JsonObject = Record<string, unknown>;
 
+const HOSTED_TOOL_NAMES: Record<keyof NotionToolMapping, string> = {
+  search: "notion-search",
+  fetch: "notion-fetch",
+  createPages: "notion-create-pages",
+  updatePage: "notion-update-page",
+  createDatabase: "notion-create-database",
+  queryDataSources: "notion-query-data-sources"
+};
+
 export function formatTools(tools: McpToolInfo[]): string {
   return tools
     .map((tool) => `- ${tool.name}${tool.description ? `: ${tool.description}` : ""}`)
@@ -19,7 +28,23 @@ export function formatTools(tools: McpToolInfo[]): string {
 }
 
 function getToolText(tool: McpToolInfo): string {
-  return `${tool.name} ${tool.description ?? ""}`.toLowerCase();
+  return `${tool.name} ${tool.description ?? ""}`.toLowerCase().replace(/[-_]/g, " ");
+}
+
+function hasTool(tools: McpToolInfo[], name: string): boolean {
+  return tools.some((tool) => tool.name === name);
+}
+
+function exactOrConfigured(
+  tools: McpToolInfo[],
+  configured: string | null,
+  hostedName: string
+): string | null {
+  if (configured) {
+    return configured;
+  }
+
+  return hasTool(tools, hostedName) ? hostedName : null;
 }
 
 function findTool(tools: McpToolInfo[], predicate: (text: string) => boolean): string | null {
@@ -32,35 +57,58 @@ function resolveToolMapping(
 ): NotionToolMapping {
   return {
     search:
-      configuredTools.search ??
-      findTool(
+      exactOrConfigured(tools, configuredTools.search, HOSTED_TOOL_NAMES.search) ??
+      findTool(tools, (text) => text.includes("search") && text.includes("notion")),
+    fetch:
+      exactOrConfigured(tools, configuredTools.fetch, HOSTED_TOOL_NAMES.fetch) ??
+      findTool(tools, (text) => text.includes("fetch") && text.includes("notion")),
+    createPages:
+      exactOrConfigured(
         tools,
-        (text) => text.includes("search") && (text.includes("notion") || text.includes("page"))
-      ),
-    createPage:
-      configuredTools.createPage ??
-      findTool(
-        tools,
-        (text) =>
-          text.includes("create") &&
-          text.includes("page") &&
-          !text.includes("database schema")
-      ),
-    createDatabase:
-      configuredTools.createDatabase ??
-      findTool(tools, (text) => text.includes("create") && text.includes("database")),
-    queryDatabase:
-      configuredTools.queryDatabase ??
+        configuredTools.createPages,
+        HOSTED_TOOL_NAMES.createPages
+      ) ??
       findTool(
         tools,
         (text) =>
-          (text.includes("query") || text.includes("search")) &&
-          text.includes("database") &&
-          (text.includes("row") || text.includes("page") || text.includes("item"))
+          (text.includes("create pages") || text.includes("create page")) &&
+          !text.includes("attachment") &&
+          !text.includes("search") &&
+          !text.includes("fetch") &&
+          !text.includes("query")
       ),
     updatePage:
-      configuredTools.updatePage ??
-      findTool(tools, (text) => text.includes("update") && text.includes("page"))
+      exactOrConfigured(tools, configuredTools.updatePage, HOSTED_TOOL_NAMES.updatePage) ??
+      findTool(
+        tools,
+        (text) => text.includes("update page") && !text.includes("search")
+      ),
+    createDatabase:
+      exactOrConfigured(
+        tools,
+        configuredTools.createDatabase,
+        HOSTED_TOOL_NAMES.createDatabase
+      ) ??
+      findTool(
+        tools,
+        (text) =>
+          text.includes("create database") &&
+          !text.includes("search") &&
+          !text.includes("fetch") &&
+          !text.includes("query")
+      ),
+    queryDataSources:
+      exactOrConfigured(
+        tools,
+        configuredTools.queryDataSources,
+        HOSTED_TOOL_NAMES.queryDataSources
+      ) ??
+      findTool(
+        tools,
+        (text) =>
+          text.includes("query data sources") ||
+          text.includes("query data source")
+      )
   };
 }
 
@@ -73,6 +121,19 @@ function requireTool(
 ): string {
   const tool = mapping[key];
   if (tool) {
+    if (!hasTool(tools, tool)) {
+      throw new Error(
+        [
+          `Configured Notion MCP tool "${tool}" for ${purpose} was not found.`,
+          "",
+          "Available tools:",
+          formatTools(tools),
+          "",
+          `Check ${envVarName}.`
+        ].join("\n")
+      );
+    }
+
     return tool;
   }
 
@@ -131,6 +192,22 @@ function normalizeMcpResult(result: unknown): unknown {
   }
 
   return result;
+}
+
+function resultToText(result: unknown): string {
+  const normalized = normalizeMcpResult(result);
+
+  if (typeof normalized === "string") {
+    return normalized;
+  }
+
+  if (Array.isArray(normalized)) {
+    return normalized
+      .map((item) => (typeof item === "string" ? item : JSON.stringify(item)))
+      .join("\n");
+  }
+
+  return JSON.stringify(normalized);
 }
 
 function collectObjects(value: unknown, output: JsonObject[] = []): JsonObject[] {
@@ -239,6 +316,38 @@ function getParentPageId(object: JsonObject): string | null {
   return null;
 }
 
+function parseFirstIdFromResult(result: unknown): string | null {
+  const objects = collectObjects(normalizeMcpResult(result));
+  const objectId = objects.find((object) => typeof object.id === "string")?.id;
+  if (typeof objectId === "string") {
+    return objectId;
+  }
+
+  const text = resultToText(result);
+  return (
+    text.match(/(?:page|database|block):\/\/([a-f0-9-]{32,36})/i)?.[1] ??
+    text.match(/\b([a-f0-9]{32}|[a-f0-9-]{36})\b/i)?.[1] ??
+    null
+  );
+}
+
+function parseFirstDataSourceUrl(result: unknown): string | null {
+  const text = resultToText(result);
+  return text.match(/<data-source\s+url="(collection:\/\/[^"]+)"/i)?.[1] ?? null;
+}
+
+function parseDataSourceIdFromUrl(url: string | null): string | null {
+  if (!url) {
+    return null;
+  }
+
+  return url.replace(/^collection:\/\//, "").trim() || null;
+}
+
+function dataSourceUrlFromId(dataSourceId: string | null): string | null {
+  return dataSourceId ? `collection://${dataSourceId}` : null;
+}
+
 function findPageRefByTitle(
   result: unknown,
   title: string,
@@ -249,7 +358,11 @@ function findPageRefByTitle(
   const typedMatches = objects.filter((object) => {
     const id = typeof object.id === "string" ? object.id : null;
     const objectTitle = readTitle(object);
-    return id && objectTitle?.trim().toLowerCase() === normalizedTitle && getObjectKind(object) === "page";
+    return (
+      id &&
+      objectTitle?.trim().toLowerCase() === normalizedTitle &&
+      getObjectKind(object) === "page"
+    );
   });
 
   if (typedMatches.length > 0) {
@@ -262,7 +375,11 @@ function findPageRefByTitle(
   const fallbackMatches = objects.filter((object) => {
     const id = typeof object.id === "string" ? object.id : null;
     const objectTitle = readTitle(object);
-    return id && objectTitle?.trim().toLowerCase() === normalizedTitle && getObjectKind(object) === null;
+    return (
+      id &&
+      objectTitle?.trim().toLowerCase() === normalizedTitle &&
+      getObjectKind(object) === null
+    );
   });
 
   if (fallbackMatches.length > 0 && debug) {
@@ -294,11 +411,12 @@ function findDatabaseRefsByTitle(
       );
     })
     .map((object) => ({
-      object,
       id: object.id as string,
       title: readTitle(object) ?? title,
       kind: getObjectKind(object),
-      parentPageId: getParentPageId(object)
+      parentPageId: getParentPageId(object),
+      dataSourceUrl: parseFirstDataSourceUrl(object),
+      dataSourceId: parseDataSourceIdFromUrl(parseFirstDataSourceUrl(object))
     }));
 
   const typedCandidates = candidates.filter((candidate) => candidate.kind === "database");
@@ -316,7 +434,9 @@ function findDatabaseRefsByTitle(
       return parentMatches.map((candidate) => ({
         id: candidate.id,
         title: candidate.title,
-        kind: "database"
+        kind: "database",
+        dataSourceId: candidate.dataSourceId,
+        dataSourceUrl: candidate.dataSourceUrl
       }));
     }
 
@@ -334,7 +454,9 @@ function findDatabaseRefsByTitle(
     return parentUnknown.map((candidate) => ({
       id: candidate.id,
       title: candidate.title,
-      kind: "database"
+      kind: "database",
+      dataSourceId: candidate.dataSourceId,
+      dataSourceUrl: candidate.dataSourceUrl
     }));
   }
 
@@ -347,25 +469,44 @@ function findDatabaseRefsByTitle(
   return usableCandidates.map((candidate) => ({
     id: candidate.id,
     title: candidate.title,
-    kind: "database"
+    kind: "database",
+    dataSourceId: candidate.dataSourceId,
+    dataSourceUrl: candidate.dataSourceUrl
   }));
 }
 
-function firstIdFromResult(result: unknown): string | null {
-  const objects = collectObjects(normalizeMcpResult(result));
-  return objects.find((object) => typeof object.id === "string")?.id as string | null;
+function formatToolMapping(mapping: NotionToolMapping): string {
+  return [
+    `search: ${mapping.search ?? "(missing)"}`,
+    `fetch: ${mapping.fetch ?? "(missing)"}`,
+    `createPages: ${mapping.createPages ?? "(missing)"}`,
+    `createDatabase: ${mapping.createDatabase ?? "(missing)"}`,
+    `queryDataSources: ${mapping.queryDataSources ?? "(missing)"}`,
+    `updatePage: ${mapping.updatePage ?? "(missing)"}`
+  ].join("\n");
 }
 
-function richText(content: string): Array<{ type: "text"; text: { content: string } }> {
-  return [{ type: "text", text: { content } }];
-}
-
-function containsValue(result: unknown, value: string | null): boolean {
-  if (!value) {
-    return false;
+function assertDisallowedMapping(
+  mapping: NotionToolMapping,
+  key: keyof NotionToolMapping,
+  disallowed: string[]
+): void {
+  const tool = mapping[key];
+  if (!tool || !disallowed.includes(tool)) {
+    return;
   }
 
-  return JSON.stringify(normalizeMcpResult(result)).toLowerCase().includes(value.toLowerCase());
+  throw new Error(
+    [
+      "Invalid Notion MCP tool mapping:",
+      `${key} resolved to ${tool}.`,
+      "This is not allowed."
+    ].join("\n")
+  );
+}
+
+function escapeSql(value: string): string {
+  return value.replace(/'/g, "''");
 }
 
 export class NotionMcpClient {
@@ -378,17 +519,109 @@ export class NotionMcpClient {
     private readonly debug: boolean
   ) {
     this.toolMapping = resolveToolMapping(tools, configuredTools);
-  }
-
-  getAvailableTools(): McpToolInfo[] {
-    return this.tools;
+    assertDisallowedMapping(this.toolMapping, "createPages", [
+      "notion-create-attachment",
+      "notion-search",
+      "notion-fetch",
+      "notion-update-page"
+    ]);
+    assertDisallowedMapping(this.toolMapping, "createDatabase", [
+      "notion-search",
+      "notion-fetch",
+      "notion-query-database-view",
+      "notion-query-data-sources"
+    ]);
+    assertDisallowedMapping(this.toolMapping, "updatePage", ["notion-search"]);
   }
 
   getFormattedTools(): string {
     return formatTools(this.tools);
   }
 
+  getFormattedToolMapping(): string {
+    return formatToolMapping(this.toolMapping);
+  }
+
+  validateWriteCapabilities(params: {
+    needsCreatePage: boolean;
+    needsCreateDatabase: boolean;
+    needsCreateRows: boolean;
+    parentPageId: string | null;
+    hasDataSource: boolean;
+  }): void {
+    if (params.needsCreatePage && !params.parentPageId) {
+      throw new Error("NOTION_PARENT_PAGE_ID is required to create the SDRAgent page.");
+    }
+
+    if (params.needsCreatePage || params.needsCreateRows) {
+      requireTool(
+        this.toolMapping,
+        "createPages",
+        params.needsCreatePage ? "creating pages" : "creating database rows",
+        this.tools,
+        "NOTION_MCP_TOOL_CREATE_PAGES"
+      );
+    }
+
+    if (params.needsCreateDatabase) {
+      try {
+        requireTool(
+          this.toolMapping,
+          "createDatabase",
+          "creating databases",
+          this.tools,
+          "NOTION_MCP_TOOL_CREATE_DATABASE"
+        );
+      } catch (error) {
+        throw new Error(
+          `${(error as Error).message}\n\nEither configure NOTION_MCP_TOOL_CREATE_DATABASE or create the Prospects database manually and configure NOTION_PROSPECTS_DATABASE_ID.`
+        );
+      }
+    }
+
+    if (params.needsCreateRows && !params.hasDataSource && !params.needsCreateDatabase) {
+      requireTool(
+        this.toolMapping,
+        "fetch",
+        "fetching database data source metadata",
+        this.tools,
+        "NOTION_MCP_TOOL_FETCH"
+      );
+    }
+
+    if (params.needsCreateRows) {
+      requireTool(
+        this.toolMapping,
+        "queryDataSources",
+        "querying data sources before creating prospect rows",
+        this.tools,
+        "NOTION_MCP_TOOL_QUERY_DATA_SOURCES"
+      );
+    }
+  }
+
+  private callTool(
+    tool: string,
+    purpose: string,
+    args: Record<string, unknown>
+  ): Promise<unknown> {
+    if (this.debug) {
+      logger.info(`Calling Notion MCP tool: ${tool}`);
+      logger.info(`Purpose: ${purpose}`);
+      logger.info(`Arguments keys: ${Object.keys(args).join(", ") || "(none)"}`);
+    }
+
+    return this.mcp.callTool(tool, args);
+  }
+
+  private assertSearchQuery(query: string, purpose: string): void {
+    if (!query.trim()) {
+      throw new Error(`Notion search query is required before calling the search tool for ${purpose}.`);
+    }
+  }
+
   async findPageByTitle(title: string): Promise<NotionPageRef | null> {
+    this.assertSearchQuery(title, "find page by title");
     const tool = requireTool(
       this.toolMapping,
       "search",
@@ -396,28 +629,29 @@ export class NotionMcpClient {
       this.tools,
       "NOTION_MCP_TOOL_SEARCH"
     );
-    const result = await this.mcp.callTool(tool, { query: title });
+    const result = await this.callTool(tool, "find page by title", { query: title });
     return findPageRefByTitle(result, title, this.debug);
   }
 
   async createPage(parentPageId: string, title: string): Promise<NotionPageRef> {
     const tool = requireTool(
       this.toolMapping,
-      "createPage",
+      "createPages",
       "creating pages",
       this.tools,
-      "NOTION_MCP_TOOL_CREATE_PAGE"
+      "NOTION_MCP_TOOL_CREATE_PAGES"
     );
-    const result = await this.mcp.callTool(tool, {
+    const result = await this.callTool(tool, "create SDRAgent page", {
       parent: { page_id: parentPageId },
-      parentPageId,
-      title,
-      properties: {
-        title: { title: richText(title) },
-        Name: { title: richText(title) }
-      }
+      pages: [
+        {
+          properties: {
+            title
+          }
+        }
+      ]
     });
-    const id = firstIdFromResult(result);
+    const id = parseFirstIdFromResult(result);
     if (!id) {
       throw new Error("Notion page was created but no page id was returned by the MCP tool.");
     }
@@ -429,6 +663,7 @@ export class NotionMcpClient {
     title: string,
     parentPageId: string | null
   ): Promise<NotionDatabaseRef | null> {
+    this.assertSearchQuery(title, "find database by title");
     const tool = requireTool(
       this.toolMapping,
       "search",
@@ -436,9 +671,39 @@ export class NotionMcpClient {
       this.tools,
       "NOTION_MCP_TOOL_SEARCH"
     );
-    const result = await this.mcp.callTool(tool, { query: title });
+    const result = await this.callTool(tool, "find database by title", { query: title });
     const refs = findDatabaseRefsByTitle(result, title, parentPageId, this.debug);
     return refs[0] ?? null;
+  }
+
+  async fetchDatabaseDataSource(database: NotionDatabaseRef): Promise<NotionDatabaseRef> {
+    if (database.dataSourceId && database.dataSourceUrl) {
+      return database;
+    }
+
+    const tool = requireTool(
+      this.toolMapping,
+      "fetch",
+      "fetching database data source metadata",
+      this.tools,
+      "NOTION_MCP_TOOL_FETCH"
+    );
+    const result = await this.callTool(tool, "fetch database data source metadata", {
+      id: database.id
+    });
+    const dataSourceUrl = parseFirstDataSourceUrl(result);
+    const dataSourceId = parseDataSourceIdFromUrl(dataSourceUrl);
+    if (!dataSourceId || !dataSourceUrl) {
+      throw new Error(
+        "Notion database was fetched, but no data source ID was returned. Configure NOTION_PROSPECTS_DATA_SOURCE_ID."
+      );
+    }
+
+    return {
+      ...database,
+      dataSourceId,
+      dataSourceUrl
+    };
   }
 
   async createProspectsDatabase(
@@ -452,103 +717,104 @@ export class NotionMcpClient {
       this.tools,
       "NOTION_MCP_TOOL_CREATE_DATABASE"
     );
-    const result = await this.mcp.callTool(tool, {
+    const result = await this.callTool(tool, "create prospects database", {
       parent: { page_id: parentPageId },
-      parentPageId,
-      title: richText(title),
-      properties: {
-        Name: { title: {} },
-        Company: { rich_text: {} },
-        Email: { email: {} },
-        "Outreach Status": {
-          select: {
-            options: [
-              { name: "new", color: "blue" },
-              { name: "qualified", color: "green" },
-              { name: "possible", color: "yellow" },
-              { name: "needs_review", color: "orange" }
-            ]
-          }
-        },
-        Notes: { rich_text: {} },
-        "Source Subject": { rich_text: {} },
-        "Gmail Thread ID": { rich_text: {} },
-        "Last Seen": { date: {} }
-      }
+      title,
+      schema:
+        'CREATE TABLE ("Name" TITLE, "Company" RICH_TEXT, "Email" EMAIL, "Outreach Status" SELECT(\'new\':blue, \'qualified\':green, \'possible\':yellow, \'needs_review\':orange), "Notes" RICH_TEXT, "Source Subject" RICH_TEXT, "Gmail Thread ID" RICH_TEXT, "Last Seen" DATE)'
     });
-    const id = firstIdFromResult(result);
+    const id = parseFirstIdFromResult(result);
+    const dataSourceUrl = parseFirstDataSourceUrl(result);
+    const dataSourceId = parseDataSourceIdFromUrl(dataSourceUrl);
     if (!id) {
       throw new Error("Notion database was created but no database id was returned by the MCP tool.");
     }
+    if (!dataSourceId || !dataSourceUrl) {
+      throw new Error(
+        "Notion database was created, but no data source ID was returned. Fetch the database or configure NOTION_PROSPECTS_DATA_SOURCE_ID."
+      );
+    }
 
-    return { id, title, kind: "database" };
+    return { id, title, kind: "database", dataSourceId, dataSourceUrl };
   }
 
   async findExistingProspectRow(
-    databaseId: string,
+    database: NotionDatabaseRef,
     row: ProspectNotionRow
   ): Promise<string | null> {
-    const tool = requireTool(
-      this.toolMapping,
-      "queryDatabase",
-      "querying database rows before creating prospect rows",
-      this.tools,
-      "NOTION_MCP_TOOL_QUERY_DATABASE"
-    );
-    const result = await this.mcp.callTool(tool, {
-      database_id: databaseId,
-      databaseId,
-      filter: {
-        or: [
-          { property: "Email", email: { equals: row.email } },
-          ...(row.gmailThreadId
-            ? [
-                {
-                  property: "Gmail Thread ID",
-                  rich_text: { equals: row.gmailThreadId }
-                }
-              ]
-            : [])
-        ]
-      }
-    });
-
-    if (!containsValue(result, row.email) && !containsValue(result, row.gmailThreadId)) {
-      return null;
+    if (!database.dataSourceUrl) {
+      throw new Error("A Notion data source URL is required to query existing prospect rows.");
     }
 
-    return firstIdFromResult(result);
+    const tool = requireTool(
+      this.toolMapping,
+      "queryDataSources",
+      "querying data sources before creating prospect rows",
+      this.tools,
+      "NOTION_MCP_TOOL_QUERY_DATA_SOURCES"
+    );
+    const filters = [`"Email" = '${escapeSql(row.email)}'`];
+    if (row.gmailThreadId) {
+      filters.push(`"Gmail Thread ID" = '${escapeSql(row.gmailThreadId)}'`);
+    }
+
+    try {
+      const result = await this.callTool(tool, "find existing prospect row", {
+        data_source_url: database.dataSourceUrl,
+        query: `SELECT * WHERE ${filters.join(" OR ")} LIMIT 1`
+      });
+
+      const text = resultToText(result).toLowerCase();
+      if (!text.includes(row.email.toLowerCase()) && !text.includes((row.gmailThreadId ?? "").toLowerCase())) {
+        return null;
+      }
+
+      return parseFirstIdFromResult(result);
+    } catch (error) {
+      logger.warn(
+        `Could not query existing Notion rows; continuing create-only after approval: ${(error as Error).message}`
+      );
+      return null;
+    }
   }
 
   async createProspectRow(
-    databaseId: string,
+    database: NotionDatabaseRef,
     row: ProspectNotionRow
   ): Promise<NotionProspectWriteResult> {
+    if (!database.dataSourceId) {
+      throw new Error("A Notion data source ID is required to create prospect rows.");
+    }
+
     const tool = requireTool(
       this.toolMapping,
-      "createPage",
+      "createPages",
       "creating database rows",
       this.tools,
-      "NOTION_MCP_TOOL_CREATE_PAGE"
+      "NOTION_MCP_TOOL_CREATE_PAGES"
     );
-    const result = await this.mcp.callTool(tool, {
-      parent: { database_id: databaseId },
-      databaseId,
-      properties: {
-        Name: { title: richText(row.name ?? row.email) },
-        Company: { rich_text: richText(row.company ?? "") },
-        Email: { email: row.email },
-        "Outreach Status": { select: { name: row.outreachStatus } },
-        Notes: { rich_text: richText(row.notes) },
-        "Source Subject": { rich_text: richText(row.sourceSubject) },
-        "Gmail Thread ID": { rich_text: richText(row.gmailThreadId ?? "") },
-        "Last Seen": { date: { start: row.lastSeen } }
-      }
+    const result = await this.callTool(tool, "create prospect database row", {
+      parent: { data_source_id: database.dataSourceId },
+      pages: [
+        {
+          properties: {
+            Name: row.name ?? row.email,
+            Company: row.company ?? "",
+            Email: row.email,
+            "Outreach Status": row.outreachStatus,
+            Notes: row.notes,
+            "Source Subject": row.sourceSubject,
+            "Gmail Thread ID": row.gmailThreadId ?? "",
+            "date:Last Seen:start": row.lastSeen,
+            "date:Last Seen:is_datetime": 1
+          }
+        }
+      ]
     });
 
     return {
       row,
-      notionId: firstIdFromResult(result),
+      notionId: parseFirstIdFromResult(result),
       status: "created"
     };
   }

@@ -16,6 +16,20 @@ const requiredStringSchema = z.preprocess((value) => {
   return String(value).trim();
 }, z.string().min(1));
 
+const booleanLikeSchema = z.preprocess((value) => {
+  if (typeof value === "string") {
+    const normalized = value.trim().toLowerCase();
+    if (normalized === "true") {
+      return true;
+    }
+    if (normalized === "false") {
+      return false;
+    }
+  }
+
+  return value;
+}, z.boolean());
+
 export const prospectOutreachStatusSchema = z.enum([
   "new",
   "qualified",
@@ -24,7 +38,7 @@ export const prospectOutreachStatusSchema = z.enum([
 ]);
 
 export const prospectExtractionSchema = z.object({
-  isProspect: z.boolean(),
+  isProspect: booleanLikeSchema,
   name: nullableStringSchema,
   company: nullableStringSchema,
   outreachStatus: prospectOutreachStatusSchema,

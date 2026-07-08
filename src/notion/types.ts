@@ -9,6 +9,8 @@ export type NotionDatabaseRef = {
   id: string;
   title: string;
   kind: "database";
+  dataSourceId: string | null;
+  dataSourceUrl: string | null;
 };
 
 export type NotionProspectWriteResult = {
@@ -19,16 +21,18 @@ export type NotionProspectWriteResult = {
 
 export type NotionToolMapping = {
   search: string | null;
-  createPage: string | null;
-  createDatabase: string | null;
-  queryDatabase: string | null;
+  fetch: string | null;
+  createPages: string | null;
   updatePage: string | null;
+  createDatabase: string | null;
+  queryDataSources: string | null;
 };
 
 export type NotionToolConfig = {
   search: string | null;
-  createPage: string | null;
-  createDatabase: string | null;
-  queryDatabase: string | null;
+  fetch: string | null;
+  createPages: string | null;
   updatePage: string | null;
+  createDatabase: string | null;
+  queryDataSources: string | null;
 };

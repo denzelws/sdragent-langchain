@@ -10,6 +10,7 @@ import { createOllamaProvider } from "../llm/ollamaProvider.js";
 import { logger } from "../utils/logger.js";
 import { askForApproval } from "../utils/terminalApproval.js";
 import { extractProspectForNotion } from "./extractProspectForNotion.js";
+import type { NotionDatabaseRef } from "../notion/types.js";
 import type { ProspectNotionRow } from "./types.js";
 
 type ProspectLoggerReport = {
@@ -98,27 +99,35 @@ async function main(): Promise<void> {
       tools,
       {
         search: config.notionMcpToolSearch,
-        createPage: config.notionMcpToolCreatePage,
+        fetch: config.notionMcpToolFetch,
+        createPages: config.notionMcpToolCreatePages,
+        updatePage: config.notionMcpToolUpdatePage,
         createDatabase: config.notionMcpToolCreateDatabase,
-        queryDatabase: config.notionMcpToolQueryDatabase,
-        updatePage: config.notionMcpToolUpdatePage
+        queryDataSources: config.notionMcpToolQueryDataSources
       },
-      config.debugLlmOutput
+      config.debugMcpOutput
     );
 
-    if (config.debugLlmOutput) {
-      logger.info("Available MCP tools:");
+    if (config.debugMcpOutput) {
+      logger.info("Available Notion MCP tools:");
       logger.info(notion.getFormattedTools());
+      logger.info("Resolved Notion MCP tool mapping:");
+      logger.info(notion.getFormattedToolMapping());
     }
 
     const existingSdrPage = await notion.findPageByTitle(config.notionSdrPageTitle);
+    let existingDatabase: NotionDatabaseRef | null = null;
     if (existingSdrPage) {
       logger.info(`Found SDRAgent page: ${existingSdrPage.id}`);
-      const existingDatabase = config.notionProspectsDatabaseId
+      existingDatabase = config.notionProspectsDatabaseId
         ? {
             id: config.notionProspectsDatabaseId,
             title: config.notionProspectsDatabaseTitle,
-            kind: "database" as const
+            kind: "database" as const,
+            dataSourceId: config.notionProspectsDataSourceId,
+            dataSourceUrl: config.notionProspectsDataSourceId
+              ? `collection://${config.notionProspectsDataSourceId}`
+              : null
           }
         : await notion.findDatabaseByTitle(
             config.notionProspectsDatabaseTitle,
@@ -171,6 +180,16 @@ async function main(): Promise<void> {
     } else if (dedupedRows.length === 0) {
       logger.info("No prospect rows to write.");
     } else {
+      notion.validateWriteCapabilities({
+        needsCreatePage: !existingSdrPage,
+        needsCreateDatabase: !existingDatabase && !config.notionProspectsDatabaseId,
+        needsCreateRows: true,
+        parentPageId: config.notionParentPageId,
+        hasDataSource:
+          Boolean(config.notionProspectsDataSourceId) ||
+          Boolean(existingDatabase?.dataSourceId)
+      });
+
       const approved = config.requireNotionWriteApproval
         ? await askForApproval(
             "Create/find the Notion page/database and write these prospects to Notion?"
