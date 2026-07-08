@@ -90,12 +90,20 @@ function areNamesCompatible(params: {
   );
 }
 
-function appendNote(notes: string, addition: string): string {
-  if (notes.includes(addition)) {
-    return notes;
+function appendSentence(base: string, sentence: string): string {
+  const trimmedBase = base.trim();
+  const trimmedSentence = sentence.trim();
+
+  if (!trimmedBase) {
+    return trimmedSentence;
   }
 
-  return `${notes} ${addition}`.trim();
+  if (trimmedBase.includes(trimmedSentence)) {
+    return trimmedBase;
+  }
+
+  const separator = /[.!?]$/.test(trimmedBase) ? " " : ". ";
+  return `${trimmedBase}${separator}${trimmedSentence}`;
 }
 
 export function enrichProspectRows(rows: ProspectNotionRow[]): ProspectEnrichmentResult {
@@ -110,7 +118,7 @@ export function enrichProspectRows(rows: ProspectNotionRow[]): ProspectEnrichmen
     return {
       ...row,
       company: null,
-      notes: appendNote(row.notes, "Company corrected from tool mention before enrichment.")
+      notes: appendSentence(row.notes, "Company corrected from tool mention before enrichment.")
     };
   });
   const profiles: ProspectProfile[] = cleanedRows
@@ -140,7 +148,7 @@ export function enrichProspectRows(rows: ProspectNotionRow[]): ProspectEnrichmen
       return {
         ...row,
         company: companies[0],
-        notes: appendNote(
+        notes: appendSentence(
           row.notes,
           `Company inferred from related ${row.name} email: ${companies[0]}.`
         )
@@ -150,7 +158,7 @@ export function enrichProspectRows(rows: ProspectNotionRow[]): ProspectEnrichmen
     if (companies.length > 1) {
       return {
         ...row,
-        notes: appendNote(
+        notes: appendSentence(
           row.notes,
           "Company not inferred due to conflicting related company evidence."
         )

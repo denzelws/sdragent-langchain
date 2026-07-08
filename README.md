@@ -265,6 +265,7 @@ Safety:
 - If MCP tool names cannot be resolved, the command prints available tools and stops.
 - Repeated runs create new rows only when no existing row is found by email or Gmail thread id.
 - Set `DEBUG_MCP_OUTPUT=true` to print available MCP tools, resolved tool mapping, and safe tool-call metadata.
+- If rows were already written before enrichment improvements, running the logger again may create duplicates unless existing-row lookup is working. Use `NOTION_WRITE_ENABLED=false` to verify the preview first.
 
 For local smoke tests, the Gmail query is only the retrieval scope. The workflow still decides whether each returned email is a prospect based on the email content.
 
