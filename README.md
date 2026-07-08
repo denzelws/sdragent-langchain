@@ -1,58 +1,66 @@
-# Gmail Ollama SDR Agent
+# AI SDR Agent
+
+Local TypeScript lab for an AI SDR workflow that reads Gmail, extracts prospect information with a local LLM, enriches related prospect records, deduplicates by Gmail thread, previews the result, and writes approved rows into Notion through MCP.
+
+The current milestone is focused on the Notion Prospect Logger. The repository also contains earlier Gmail draft, Product FAQ, and meeting invitation workflows, but Notion writes are the main production-style pipeline for this milestone.
 
 ## Overview
 
-Local TypeScript CLI assistant for a narrow Gmail + Ollama SDR workflow. It reads Gmail messages, uses a local Ollama model to classify likely B2B SaaS RevOps prospects, generates outreach draft text, and can optionally create Gmail drafts.
+The agent reads email from Gmail using a configurable search query, normalizes message data, asks an LLM to extract prospect records, validates structured output with Zod, enriches missing company details from related emails in the same batch, deduplicates by Gmail thread ID, and writes approved prospect rows to a Notion CRM page/database using an MCP Notion server.
 
-By default, the safe mode is read/classify/generate only: it does not create Gmail drafts by default and does not send emails by default. Sending is optional and requires explicit enablement plus a second send approval prompt.
+By default, external writes are disabled. The Notion workflow previews rows in the terminal before writing, and Notion writes require explicit enablement plus approval when configured.
 
 ## Features
 
-- Reads Gmail messages with a configurable Gmail search query.
-- Classifies prospects with local Ollama through LangChain.
-- Generates concise outreach draft text for qualified prospects.
-- Validates LLM output with Zod; invalid output falls back safely.
-- Optionally creates Gmail drafts after terminal approval.
-- Optionally sends created Gmail drafts after a second explicit approval.
-- No frontend, database, CRM, web enrichment, lead generation, or scheduling.
+- Gmail OAuth and Gmail API integration.
+- Configurable Gmail search query and max email count.
+- LLM prospect extraction with structured JSON output.
+- Zod validation and safe fallback behavior for model output.
+- Prospect enrichment across related emails in the same batch.
+- Thread-based prospect deduplication.
+- Terminal preview before Notion writes.
+- Notion MCP integration.
+- Automatic `SDRAgent` page creation when configured.
+- Automatic `Prospects` database creation when configured.
+- Create-or-skip upsert support for existing prospect rows.
+- Human approval before writing to Notion.
+- Safe defaults for Gmail draft creation, email sending, Calendar events, and Notion writes.
 
-## Safety Defaults
+## Tech Stack
 
-Use these defaults for local development:
+- TypeScript
+- Node.js
+- Gmail API via `googleapis`
+- Ollama via `@langchain/ollama`
+- LangChain prompt/model orchestration
+- Zod schema validation
+- MCP via `@modelcontextprotocol/sdk`
+- Notion through an MCP server
+- `tsx` for local TypeScript execution
 
-```env
-DRY_RUN=true
-CREATE_DRAFTS=false
-SEND_APPROVED_DRAFTS=false
-REQUIRE_DRAFT_APPROVAL=true
-REQUIRE_SEND_APPROVAL=true
-DEBUG_LLM_OUTPUT=false
+## Architecture
+
+```text
+Gmail
+    ↓
+Read Emails
+    ↓
+LLM Extraction
+    ↓
+Validation
+    ↓
+Enrichment
+    ↓
+Deduplication
+    ↓
+Preview
+    ↓
+Notion MCP
+    ↓
+Notion CRM
 ```
 
-| Setting | Safe behavior |
-| --- | --- |
-| `DRY_RUN=true` | Prints results but does not create drafts or send. |
-| `CREATE_DRAFTS=false` | Gmail drafts are not created. |
-| `SEND_APPROVED_DRAFTS=false` | Created drafts are not sent. |
-| `REQUIRE_DRAFT_APPROVAL=true` | User must approve draft creation. |
-| `REQUIRE_SEND_APPROVAL=true` | User must approve sending after draft creation. |
-| `DEBUG_LLM_OUTPUT=false` | Raw LLM output is not logged. |
-
-Sending requires all of the following:
-
-```env
-DRY_RUN=false
-CREATE_DRAFTS=true
-SEND_APPROVED_DRAFTS=true
-```
-
-If `REQUIRE_SEND_APPROVAL=true`, the app also asks:
-
-```txt
-Send this Gmail draft now? (y/N)
-```
-
-Only `y` or `yes` approves. Pressing enter rejects.
+The LLM is used for extraction and drafting. Code owns validation, deduplication, enrichment rules, approval gates, and all Gmail/Notion/Calendar side effects.
 
 ## Setup
 
@@ -62,19 +70,87 @@ Install dependencies:
 npm install
 ```
 
-Create a local env file:
+Copy the example environment file and fill in local values:
 
 ```bash
 cp .env.example .env
 ```
 
-Review `.env` before running against a real inbox. For safest testing, keep `DRY_RUN=true`, `CREATE_DRAFTS=false`, and `SEND_APPROVED_DRAFTS=false`.
+Do not commit `.env`, `credentials.json`, `token.json`, `.agent-state/`, or `.codex/`.
 
-Install and start Ollama:
+### Gmail OAuth
+
+1. Enable the Gmail API in Google Cloud.
+2. Create OAuth credentials for a desktop app.
+3. Download the file as `credentials.json` into the project root.
+4. Run:
+
+```bash
+npm run auth:gmail
+```
+
+This opens the local OAuth flow and creates `token.json` locally.
+
+### Ollama
+
+Install and run Ollama, then pull the default model:
 
 ```bash
 ollama pull llama3.2:3b
 ollama serve
+```
+
+### Notion MCP
+
+Configure a Notion MCP server command in `.env`:
+
+```env
+NOTION_MCP_SERVER_COMMAND=
+NOTION_MCP_SERVER_ARGS=
+```
+
+For first-time setup, provide a Notion parent page ID so the logger can create the `SDRAgent` page if needed:
+
+```env
+NOTION_PARENT_PAGE_ID=
+```
+
+After a successful setup, you can make future runs safer and faster by configuring explicit IDs:
+
+```env
+NOTION_SDR_PAGE_ID=
+NOTION_PROSPECTS_DATABASE_ID=
+NOTION_PROSPECTS_DATA_SOURCE_ID=
+```
+
+## Running
+
+Install dependencies:
+
+```bash
+npm install
+```
+
+Run the main Gmail agent workflow:
+
+```bash
+npm run dev
+```
+
+This reads Gmail and runs the configured workflow mode. Depending on `.env`, it can run the meeting workflow, Product FAQ workflow, SDR draft workflow, or all of them. Safe defaults avoid creating drafts, sending emails, or creating Calendar events unless enabled.
+
+Run the Notion Prospect Logger:
+
+```bash
+npm run notion:prospects
+```
+
+This reads Gmail using `NOTION_PROSPECT_GMAIL_QUERY`, extracts prospect rows, enriches and deduplicates them, previews the rows, and writes to Notion only when `NOTION_WRITE_ENABLED=true` and approval passes.
+
+Alias:
+
+```bash
+npm run prospects:notion
 ```
 
 Typecheck:
@@ -83,265 +159,72 @@ Typecheck:
 npm run typecheck
 ```
 
-## Gmail OAuth
-
-1. Create or open a Google Cloud project.
-2. Enable the Gmail API.
-3. Configure the OAuth consent screen for local testing.
-4. Create OAuth client credentials. A desktop app credential is simplest.
-5. Download the OAuth JSON file.
-6. Save it in the project root as `credentials.json`.
-7. Run:
-
-```bash
-npm run auth:gmail
-```
-
-The command prints an authorization URL. Open it, approve access, paste the returned code, and the app creates `token.json` locally.
-
-If you enabled this project before Calendar support was added, delete `token.json` and rerun `npm run auth:gmail` so Google can grant the Calendar event scope.
-
-Never commit:
-
-- `.env`
-- `credentials.json`
-- `token.json`
-
-These are listed in `.gitignore`.
-
-## Usage
-
-Safe run: read Gmail, classify messages, and print draft text without creating Gmail drafts.
-
-```bash
-npm run dev
-```
-
-Use a narrow Gmail query:
-
-```bash
-npm run dev -- --query "in:inbox newer_than:7d"
-```
-
-Limit message count:
-
-```bash
-npm run dev -- --max 5
-```
-
-Create Gmail drafts after approval:
-
-```bash
-npm run dev -- --create-drafts
-```
-
-`--create-drafts` enables Gmail draft creation only. It does not send emails unless `SEND_APPROVED_DRAFTS=true`.
-
-To send approved drafts, set:
-
-```env
-DRY_RUN=false
-CREATE_DRAFTS=true
-SEND_APPROVED_DRAFTS=true
-REQUIRE_DRAFT_APPROVAL=true
-REQUIRE_SEND_APPROVAL=true
-```
-
-Then run:
-
-```bash
-npm run dev -- --query "from:test.sender@example.com newer_than:7d"
-```
-
-Flow when sending is enabled:
-
-```txt
-Generate draft
-→ ask to create Gmail draft
-→ create draft if approved
-→ ask to send Gmail draft
-→ send only if approved
-```
-
-## Processed Email State
-
-The agent can remember processed Gmail message IDs across runs so the same recent emails are not handled repeatedly.
-
-Default state file:
-
-```txt
-.agent-state/processed-emails.json
-```
-
-The state file stores safe metadata only: message id, thread id, sender, subject, workflow, status, reason, and timestamp. It does not store full email bodies, Gmail tokens, or credentials.
-
-Clear local state:
+Clear local processed-email state:
 
 ```bash
 npm run state:clear
 ```
 
-Relevant settings:
+## Environment Variables
 
-```env
-SKIP_PROCESSED_EMAILS=true
-PROCESSED_EMAIL_STORE_PATH=./.agent-state/processed-emails.json
-```
+Use `.env.example` as the source of truth. Do not commit real `.env` values.
 
-## Workflow Mode
+| Variable | Purpose | Safe default |
+| --- | --- | --- |
+| `OLLAMA_MODEL` | Ollama model used for LLM calls. | `llama3.2:3b` |
+| `OLLAMA_BASE_URL` | Local Ollama server URL. | `http://localhost:11434` |
+| `GMAIL_CREDENTIALS_PATH` | Path to local Google OAuth credentials. | `./credentials.json` |
+| `GMAIL_TOKEN_PATH` | Path to local OAuth token. | `./token.json` |
+| `GMAIL_QUERY` | Gmail query for the main agent workflow. | `in:inbox newer_than:7d` |
+| `MAX_EMAILS` | Max emails read by the main workflow. | `10` |
+| `WORKFLOW_MODE` | Main workflow mode: `all`, `meeting`, `product-faq`, or `sdr`. | `all` |
+| `SKIP_PROCESSED_EMAILS` | Skips Gmail message IDs already stored locally. | `true` |
+| `PROCESSED_EMAIL_STORE_PATH` | Local JSON state file path. | `./.agent-state/processed-emails.json` |
+| `DRY_RUN` | Prevents Gmail writes/sends in the main workflow. | `true` |
+| `CREATE_DRAFTS` | Enables Gmail draft creation when not dry-run. | `false` |
+| `REQUIRE_DRAFT_APPROVAL` | Requires approval before creating Gmail drafts. | `true` |
+| `SEND_APPROVED_DRAFTS` | Allows sending already-created Gmail drafts. | `false` |
+| `REQUIRE_SEND_APPROVAL` | Requires second approval before sending. | `true` |
+| `ENABLE_MEETING_WORKFLOW` | Enables meeting invitation workflow. | `false` |
+| `CREATE_CALENDAR_EVENTS` | Enables Google Calendar event creation. | `false` |
+| `REQUIRE_CALENDAR_EVENT_APPROVAL` | Requires approval before creating Calendar events. | `true` |
+| `DEFAULT_TIMEZONE` | Timezone used for meeting extraction. | `America/Sao_Paulo` |
+| `DEBUG_LLM_OUTPUT` | Prints raw/parsed LLM output for debugging. May expose email content. | `false` |
+| `DEBUG_MCP_OUTPUT` | Prints MCP tool mapping and safe call metadata. | `false` |
+| `NOTION_MCP_SERVER_COMMAND` | Command used to start the Notion MCP server. | blank |
+| `NOTION_MCP_SERVER_ARGS` | Comma-separated args for the MCP server command. | blank |
+| `NOTION_PARENT_PAGE_ID` | Parent Notion page for creating `SDRAgent`. | blank |
+| `NOTION_SDR_PAGE_ID` | Explicit existing `SDRAgent` page ID. | blank |
+| `NOTION_SDR_PAGE_TITLE` | Page title used when finding/creating the SDR page. | `SDRAgent` |
+| `NOTION_PROSPECTS_DATABASE_TITLE` | Database title used for prospects. | `Prospects` |
+| `NOTION_PROSPECTS_DATABASE_ID` | Explicit existing Prospects database ID. | blank |
+| `NOTION_PROSPECTS_DATA_SOURCE_ID` | Explicit Notion data source ID for row creation. | blank |
+| `NOTION_WRITE_ENABLED` | Enables Notion writes. | `false` |
+| `REQUIRE_NOTION_WRITE_APPROVAL` | Requires terminal approval before Notion writes. | `true` |
+| `NOTION_PROSPECT_GMAIL_QUERY` | Gmail query for the Notion Prospect Logger. | configurable test query |
+| `NOTION_PROSPECT_MAX_EMAILS` | Max emails inspected by the Notion Prospect Logger. | `10` |
+| `NOTION_MCP_TOOL_SEARCH` | Optional explicit MCP search tool name. | blank |
+| `NOTION_MCP_TOOL_FETCH` | Optional explicit MCP fetch tool name. | blank |
+| `NOTION_MCP_TOOL_CREATE_PAGES` | Optional explicit MCP create-pages tool name. | blank |
+| `NOTION_MCP_TOOL_UPDATE_PAGE` | Optional explicit MCP update-page tool name. | blank |
+| `NOTION_MCP_TOOL_CREATE_DATABASE` | Optional explicit MCP create-database tool name. | blank |
+| `NOTION_MCP_TOOL_QUERY_DATA_SOURCES` | Optional explicit MCP query-data-sources tool name. | blank |
 
-Use `WORKFLOW_MODE` to run only one workflow during development.
+## Safety Notes
 
-Available modes:
-
-```txt
-all
-meeting
-product-faq
-sdr
-```
-
-Example Product FAQ testing config:
-
-```env
-GMAIL_QUERY=from:sanmutty@gmail.com newer_than:7d
-MAX_EMAILS=10
-WORKFLOW_MODE=product-faq
-SKIP_PROCESSED_EMAILS=true
-DRY_RUN=false
-CREATE_DRAFTS=true
-SEND_APPROVED_DRAFTS=false
-DEBUG_LLM_OUTPUT=true
-```
-
-In `product-faq` mode, Meeting and SDR workflows do not run. Emails that do not match Product FAQ are still marked processed so they do not reappear on every development run.
-
-## Notion Prospect Logger via MCP
-
-This separate workflow reads Gmail, extracts prospect information, and writes structured prospect rows to a Notion page using a Notion MCP server. It does not send Gmail emails and does not run the normal reply workflow.
-
-Command:
-
-```bash
-npm run notion:prospects
-```
-
-Alias:
-
-```bash
-npm run prospects:notion
-```
-
-Required config:
-
-```env
-NOTION_MCP_SERVER_COMMAND=
-NOTION_MCP_SERVER_ARGS=
-NOTION_PARENT_PAGE_ID=
-NOTION_SDR_PAGE_ID=
-NOTION_SDR_PAGE_TITLE=SDRAgent
-NOTION_PROSPECTS_DATABASE_TITLE=Prospects
-NOTION_PROSPECTS_DATABASE_ID=
-NOTION_PROSPECTS_DATA_SOURCE_ID=
-NOTION_WRITE_ENABLED=false
-REQUIRE_NOTION_WRITE_APPROVAL=true
-NOTION_PROSPECT_GMAIL_QUERY=from:sanmutty@gmail.com newer_than:7d subject:"MEETING_TEST"
-NOTION_PROSPECT_MAX_EMAILS=10
-DEBUG_MCP_OUTPUT=false
-NOTION_MCP_TOOL_SEARCH=
-NOTION_MCP_TOOL_FETCH=
-NOTION_MCP_TOOL_CREATE_PAGES=
-NOTION_MCP_TOOL_UPDATE_PAGE=
-NOTION_MCP_TOOL_CREATE_DATABASE=
-NOTION_MCP_TOOL_QUERY_DATA_SOURCES=
-```
-
-Safety:
-
-- Notion writes are disabled by default.
-- Prospect rows are previewed before writing.
-- Human approval is required before writing when `REQUIRE_NOTION_WRITE_APPROVAL=true`.
-- The workflow stores only structured prospect fields in Notion, not full Gmail bodies.
-- If MCP tool names cannot be resolved, the command prints available tools and stops.
-- Repeated runs create new rows only when no existing row is found by email or Gmail thread id.
-- Set `DEBUG_MCP_OUTPUT=true` to print available MCP tools, resolved tool mapping, and safe tool-call metadata.
-- If rows were already written before enrichment improvements, running the logger again may create duplicates unless existing-row lookup is working. Use `NOTION_WRITE_ENABLED=false` to verify the preview first.
-
-For local smoke tests, the Gmail query is only the retrieval scope. The workflow still decides whether each returned email is a prospect based on the email content.
-
-## Testing With A Second Gmail
-
-Use a second Gmail account to send one fake prospect email into the inbox connected to this app. Then run the agent with a narrow sender query so it does not scan your whole inbox:
-
-```bash
-npm run dev -- --query "from:your.second.account@gmail.com newer_than:7d" --max 5
-```
-
-Example test email:
-
-```txt
-Subject: Question about HubSpot and Jira workflow
-
-Hi,
-
-I’m Laura Bennett, Head of Revenue Operations at ScaleHub.
-
-We’re a B2B SaaS company with around 240 employees. Right now, when an enterprise deal closes in HubSpot, our RevOps team manually creates Jira tickets for onboarding and implementation.
-
-The process creates delays and mistakes because customer data gets copied between HubSpot, Stripe, and Jira by hand.
-
-We’re looking for a no-code way to reduce manual data entry without asking engineering to build custom internal scripts.
-
-Best,
-Laura
-```
-
-Expected result:
-
-- Classification: `qualified_prospect`
-- Draft text printed in the terminal
-- No Gmail draft if `DRY_RUN=true` or `CREATE_DRAFTS=false`
-- Gmail draft created only after draft approval
-- Email sent only when `SEND_APPROVED_DRAFTS=true` and send approval passes
-
-## Troubleshooting
-
-Gmail auth fails:
-
-- Confirm the Gmail API is enabled.
-- Confirm `credentials.json` is in the project root or update `GMAIL_CREDENTIALS_PATH`.
-- Delete `token.json` and rerun `npm run auth:gmail` if scopes or accounts changed.
-- Confirm your Google account is allowed by the OAuth consent screen.
-
-Ollama fails:
-
-- Run `ollama serve`.
-- Run `ollama pull llama3.2:3b`.
-- Confirm `OLLAMA_BASE_URL=http://localhost:11434`.
-- Try a smaller `MAX_EMAILS` while testing.
-
-No emails found:
-
-- Check `GMAIL_QUERY`.
-- Try `in:inbox newer_than:30d`.
-- Use a known sender query from a second Gmail account.
-
-Draft generated but Gmail draft not created:
-
-- Confirm `DRY_RUN=false`.
-- Confirm `CREATE_DRAFTS=true` or use `--create-drafts`.
-- Confirm you approved the `Create Gmail draft...?` prompt.
-
-Draft created but email not sent:
-
-- Confirm `SEND_APPROVED_DRAFTS=true`.
-- Confirm `DRY_RUN=false`.
-- Confirm you approved the `Send this Gmail draft now?` prompt.
-
-## Security Notes
-
-- Do not commit `.env`, `credentials.json`, or `token.json`.
-- Keep `DEBUG_LLM_OUTPUT=false` for real inbox data; debug logs may expose private email content and raw model output.
+- `.env`, `credentials.json`, `token.json`, `.agent-state/`, and `.codex/` are local-only.
+- `NOTION_WRITE_ENABLED=false` keeps the Notion Prospect Logger in preview mode.
+- Use `DEBUG_LLM_OUTPUT=false` with real inbox data unless actively debugging; LLM logs may expose email content.
 - Use narrow Gmail queries while testing.
-- This project is for local development and controlled testing, not spam or bulk outreach.
-- LLM output is treated as untrusted: it is parsed, normalized for harmless descriptive-field issues, validated with Zod, and falls back safely when invalid.
+- If rows were written before enrichment improvements, reruns may create duplicates unless existing-row lookup succeeds. Run with `NOTION_WRITE_ENABLED=false` first to verify the preview.
+- Gmail sending is disabled by default and requires explicit configuration plus approval.
+- Calendar event creation is disabled by default and requires explicit configuration plus approval.
+
+## Future Improvements
+
+- Stronger identity resolution across threads and senders.
+- Better company inference with stricter provenance tracking.
+- Lead scoring and prioritization.
+- CRM integrations beyond Notion.
+- Meeting scheduling flows.
+- Multi-agent workflow organization.
