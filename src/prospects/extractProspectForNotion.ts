@@ -24,6 +24,12 @@ const prospectExtractionPrompt = ChatPromptTemplate.fromMessages([
     [
       "Return exactly these JSON fields: isProspect, name, company, outreachStatus, notes, reason.",
       "outreachStatus must be one of: new, qualified, possible, needs_review.",
+      "Extract the person's name from introductions or signatures when present.",
+      "Examples:",
+      "- \"My name is Laura Bennett\" -> name: \"Laura Bennett\"",
+      "- \"I'm Marcus from BrightOps\" -> name: \"Marcus\", company: \"BrightOps\"",
+      "- \"I'm Rachel from Northstar Ops\" -> name: \"Rachel\", company: \"Northstar Ops\"",
+      "- \"I'm Daniel, RevOps Manager at Flowbase\" -> name: \"Daniel\", company: \"Flowbase\"",
       "Use null for name or company when unknown. Do not invent missing company names.",
       "Keep notes short and useful for a Notion CRM row.",
       "",
