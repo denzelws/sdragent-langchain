@@ -216,6 +216,45 @@ DEBUG_LLM_OUTPUT=true
 
 In `product-faq` mode, Meeting and SDR workflows do not run. Emails that do not match Product FAQ are still marked processed so they do not reappear on every development run.
 
+## Notion Prospect Logger via MCP
+
+This separate workflow reads Gmail, extracts prospect information, and writes structured prospect rows to a Notion page using a Notion MCP server. It does not send Gmail emails and does not run the normal reply workflow.
+
+Command:
+
+```bash
+npm run notion:prospects
+```
+
+Required config:
+
+```env
+NOTION_MCP_SERVER_COMMAND=
+NOTION_MCP_SERVER_ARGS=
+NOTION_PARENT_PAGE_ID=
+NOTION_SDR_PAGE_TITLE=SDRAgent
+NOTION_PROSPECTS_DATABASE_TITLE=Prospects
+NOTION_PROSPECTS_DATABASE_ID=
+NOTION_WRITE_ENABLED=false
+REQUIRE_NOTION_WRITE_APPROVAL=true
+NOTION_PROSPECT_GMAIL_QUERY=from:sanmutty@gmail.com newer_than:7d -subject:MEETING_TEST
+NOTION_PROSPECT_MAX_EMAILS=10
+NOTION_MCP_TOOL_SEARCH=
+NOTION_MCP_TOOL_CREATE_PAGE=
+NOTION_MCP_TOOL_CREATE_DATABASE=
+NOTION_MCP_TOOL_QUERY_DATABASE=
+NOTION_MCP_TOOL_UPDATE_PAGE=
+```
+
+Safety:
+
+- Notion writes are disabled by default.
+- Prospect rows are previewed before writing.
+- Human approval is required before writing when `REQUIRE_NOTION_WRITE_APPROVAL=true`.
+- The workflow stores only structured prospect fields in Notion, not full Gmail bodies.
+- If MCP tool names cannot be resolved, the command prints available tools and stops.
+- Repeated runs create new rows only when no existing row is found by email or Gmail thread id.
+
 ## Testing With A Second Gmail
 
 Use a second Gmail account to send one fake prospect email into the inbox connected to this app. Then run the agent with a narrow sender query so it does not scan your whole inbox:

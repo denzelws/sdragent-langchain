@@ -1,0 +1,210 @@
+import { loadConfig } from "../config.js";
+import { createGmailClient } from "../gmail/gmailClient.js";
+import { readRecentEmails } from "../gmail/readEmails.js";
+import { connectMcpServer } from "../mcp/mcpClient.js";
+import { createProspectRows } from "../notion/createProspectRows.js";
+import { findOrCreateProspectsDatabase } from "../notion/findOrCreateProspectsDatabase.js";
+import { findOrCreateSdrPage } from "../notion/findOrCreateSdrPage.js";
+import { NotionMcpClient } from "../notion/notionMcpClient.js";
+import { createOllamaProvider } from "../llm/ollamaProvider.js";
+import { logger } from "../utils/logger.js";
+import { askForApproval } from "../utils/terminalApproval.js";
+import { extractProspectForNotion } from "./extractProspectForNotion.js";
+import type { ProspectNotionRow } from "./types.js";
+
+type ProspectLoggerReport = {
+  emailsRead: number;
+  prospectsExtracted: number;
+  prospectsAfterDedupe: number;
+  rowsCreated: number;
+  rowsSkippedExisting: number;
+};
+
+function isNewer(candidate: ProspectNotionRow, current: ProspectNotionRow): boolean {
+  return new Date(candidate.lastSeen).getTime() > new Date(current.lastSeen).getTime();
+}
+
+function mergeRows(current: ProspectNotionRow, candidate: ProspectNotionRow): ProspectNotionRow {
+  const preferred = isNewer(candidate, current) ? candidate : current;
+  const notes = Array.from(new Set([current.notes, candidate.notes].filter(Boolean))).join(" ");
+
+  return {
+    ...preferred,
+    name: preferred.name ?? current.name ?? candidate.name,
+    company: preferred.company ?? current.company ?? candidate.company,
+    notes
+  };
+}
+
+function deduplicateProspects(rows: ProspectNotionRow[]): ProspectNotionRow[] {
+  const byEmail = new Map<string, ProspectNotionRow>();
+  for (const row of rows) {
+    const key = row.email.toLowerCase();
+    const current = byEmail.get(key);
+    byEmail.set(key, current ? mergeRows(current, row) : row);
+  }
+
+  const byThread = new Map<string, ProspectNotionRow>();
+  const withoutThread: ProspectNotionRow[] = [];
+  for (const row of byEmail.values()) {
+    if (!row.gmailThreadId) {
+      withoutThread.push(row);
+      continue;
+    }
+
+    const current = byThread.get(row.gmailThreadId);
+    byThread.set(row.gmailThreadId, current ? mergeRows(current, row) : row);
+  }
+
+  return [...byThread.values(), ...withoutThread].sort(
+    (left, right) => new Date(right.lastSeen).getTime() - new Date(left.lastSeen).getTime()
+  );
+}
+
+function printProspectPreview(rows: ProspectNotionRow[]): void {
+  logger.info("\nProspects ready for Notion:");
+  rows.forEach((row, index) => {
+    logger.info(`\n${index + 1}. ${row.name ?? "(unknown name)"}`);
+    logger.info(`   Company: ${row.company ?? "(unknown company)"}`);
+    logger.info(`   Email: ${row.email}`);
+    logger.info(`   Status: ${row.outreachStatus}`);
+    logger.info(`   Notes: ${row.notes}`);
+    logger.info(`   Source: ${row.sourceSubject}`);
+    logger.info(`   Gmail Thread ID: ${row.gmailThreadId ?? "(none)"}`);
+    logger.info(`   Last Seen: ${row.lastSeen}`);
+  });
+}
+
+async function main(): Promise<void> {
+  const config = loadConfig();
+  if (!config.notionMcpServerCommand) {
+    throw new Error("NOTION_MCP_SERVER_COMMAND is required for npm run notion:prospects.");
+  }
+
+  const provider = createOllamaProvider(config);
+  const gmail = await createGmailClient(config);
+  logger.info("Connected to Gmail.");
+
+  const mcp = await connectMcpServer({
+    command: config.notionMcpServerCommand,
+    args: config.notionMcpServerArgs
+  });
+
+  try {
+    logger.info("Connected to Notion MCP server.");
+    const tools = await mcp.listTools();
+    const notion = new NotionMcpClient(
+      mcp,
+      tools,
+      {
+        search: config.notionMcpToolSearch,
+        createPage: config.notionMcpToolCreatePage,
+        createDatabase: config.notionMcpToolCreateDatabase,
+        queryDatabase: config.notionMcpToolQueryDatabase,
+        updatePage: config.notionMcpToolUpdatePage
+      },
+      config.debugLlmOutput
+    );
+
+    if (config.debugLlmOutput) {
+      logger.info("Available MCP tools:");
+      logger.info(notion.getFormattedTools());
+    }
+
+    const existingSdrPage = await notion.findPageByTitle(config.notionSdrPageTitle);
+    if (existingSdrPage) {
+      logger.info(`Found SDRAgent page: ${existingSdrPage.id}`);
+      const existingDatabase = config.notionProspectsDatabaseId
+        ? {
+            id: config.notionProspectsDatabaseId,
+            title: config.notionProspectsDatabaseTitle,
+            kind: "database" as const
+          }
+        : await notion.findDatabaseByTitle(
+            config.notionProspectsDatabaseTitle,
+            existingSdrPage.id
+          );
+      if (existingDatabase) {
+        logger.info(`Found Prospects database/table: ${existingDatabase.id}`);
+      } else {
+        logger.info("Prospects database/table was not found.");
+      }
+    } else {
+      logger.info("SDRAgent page was not found.");
+    }
+
+    logger.info(`Reading Gmail with query: ${config.notionProspectGmailQuery}`);
+    logger.info(`Max emails: ${config.notionProspectMaxEmails}`);
+    const emails = await readRecentEmails(
+      gmail,
+      config.notionProspectGmailQuery,
+      config.notionProspectMaxEmails
+    );
+    logger.info(`Read ${emails.length} Gmail email(s).`);
+
+    const candidates: ProspectNotionRow[] = [];
+    for (const email of emails) {
+      const row = await extractProspectForNotion(provider, email, config);
+      if (row) {
+        candidates.push(row);
+      }
+    }
+
+    const dedupedRows = deduplicateProspects(candidates);
+    const report: ProspectLoggerReport = {
+      emailsRead: emails.length,
+      prospectsExtracted: candidates.length,
+      prospectsAfterDedupe: dedupedRows.length,
+      rowsCreated: 0,
+      rowsSkippedExisting: 0
+    };
+
+    logger.info(`Extracted ${candidates.length} prospect row(s).`);
+    logger.info(`Deduplicated to ${dedupedRows.length} prospect row(s).`);
+
+    if (dedupedRows.length > 0) {
+      printProspectPreview(dedupedRows);
+    }
+
+    if (!config.notionWriteEnabled) {
+      logger.info("Notion write skipped. Set NOTION_WRITE_ENABLED=true to write prospects.");
+    } else if (dedupedRows.length === 0) {
+      logger.info("No prospect rows to write.");
+    } else {
+      const approved = config.requireNotionWriteApproval
+        ? await askForApproval(
+            "Create/find the Notion page/database and write these prospects to Notion?"
+          )
+        : true;
+
+      if (!approved) {
+        logger.info("Notion write rejected by user.");
+      } else {
+        const writeConfig = { ...config, requireNotionWriteApproval: false };
+        const sdrPage = await findOrCreateSdrPage(notion, writeConfig);
+        const database = await findOrCreateProspectsDatabase(notion, sdrPage, writeConfig);
+        const results = await createProspectRows(notion, database, dedupedRows);
+        report.rowsCreated = results.filter((result) => result.status === "created").length;
+        report.rowsSkippedExisting = results.filter(
+          (result) => result.status === "skipped_existing"
+        ).length;
+      }
+    }
+
+    logger.info("\nNotion prospect logger report");
+    logger.info(`Emails read: ${report.emailsRead}`);
+    logger.info(`Prospects extracted: ${report.prospectsExtracted}`);
+    logger.info(`Prospects after dedupe: ${report.prospectsAfterDedupe}`);
+    logger.info(`Rows created: ${report.rowsCreated}`);
+    logger.info(`Rows skipped existing: ${report.rowsSkippedExisting}`);
+    logger.info(`Rows written total: ${report.rowsCreated}`);
+    logger.info(`Notion writes enabled: ${config.notionWriteEnabled}`);
+  } finally {
+    await mcp.close();
+  }
+}
+
+main().catch((error) => {
+  logger.error((error as Error).message);
+  process.exitCode = 1;
+});

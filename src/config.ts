@@ -25,6 +25,21 @@ export type AppConfig = {
   requireCalendarEventApproval: boolean;
   defaultTimezone: string;
   debugLlmOutput: boolean;
+  notionMcpServerCommand: string | null;
+  notionMcpServerArgs: string[];
+  notionParentPageId: string | null;
+  notionSdrPageTitle: string;
+  notionProspectsDatabaseTitle: string;
+  notionProspectsDatabaseId: string | null;
+  notionWriteEnabled: boolean;
+  requireNotionWriteApproval: boolean;
+  notionProspectGmailQuery: string;
+  notionProspectMaxEmails: number;
+  notionMcpToolSearch: string | null;
+  notionMcpToolCreatePage: string | null;
+  notionMcpToolCreateDatabase: string | null;
+  notionMcpToolQueryDatabase: string | null;
+  notionMcpToolUpdatePage: string | null;
 };
 
 const DEFAULT_GMAIL_QUERY = "in:inbox newer_than:7d";
@@ -61,6 +76,22 @@ function parseWorkflowMode(value: string | undefined): WorkflowMode {
   return "all";
 }
 
+function parseOptionalString(value: string | undefined): string | null {
+  const trimmed = value?.trim();
+  return trimmed ? trimmed : null;
+}
+
+function parseCommaSeparatedArgs(value: string | undefined): string[] {
+  if (!value) {
+    return [];
+  }
+
+  return value
+    .split(",")
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
 export function loadConfig(): AppConfig {
   return {
     ollamaModel: process.env.OLLAMA_MODEL ?? "llama3.2:3b",
@@ -86,7 +117,32 @@ export function loadConfig(): AppConfig {
       true
     ),
     defaultTimezone: process.env.DEFAULT_TIMEZONE ?? "America/Sao_Paulo",
-    debugLlmOutput: parseBoolean(process.env.DEBUG_LLM_OUTPUT, false)
+    debugLlmOutput: parseBoolean(process.env.DEBUG_LLM_OUTPUT, false),
+    notionMcpServerCommand: parseOptionalString(process.env.NOTION_MCP_SERVER_COMMAND),
+    notionMcpServerArgs: parseCommaSeparatedArgs(process.env.NOTION_MCP_SERVER_ARGS),
+    notionParentPageId: parseOptionalString(process.env.NOTION_PARENT_PAGE_ID),
+    notionSdrPageTitle: process.env.NOTION_SDR_PAGE_TITLE?.trim() || "SDRAgent",
+    notionProspectsDatabaseTitle:
+      process.env.NOTION_PROSPECTS_DATABASE_TITLE?.trim() || "Prospects",
+    notionProspectsDatabaseId: parseOptionalString(process.env.NOTION_PROSPECTS_DATABASE_ID),
+    notionWriteEnabled: parseBoolean(process.env.NOTION_WRITE_ENABLED, false),
+    requireNotionWriteApproval: parseBoolean(
+      process.env.REQUIRE_NOTION_WRITE_APPROVAL,
+      true
+    ),
+    notionProspectGmailQuery:
+      process.env.NOTION_PROSPECT_GMAIL_QUERY ??
+      "from:sanmutty@gmail.com newer_than:7d -subject:MEETING_TEST",
+    notionProspectMaxEmails: parseNumber(process.env.NOTION_PROSPECT_MAX_EMAILS, 10),
+    notionMcpToolSearch: parseOptionalString(process.env.NOTION_MCP_TOOL_SEARCH),
+    notionMcpToolCreatePage: parseOptionalString(process.env.NOTION_MCP_TOOL_CREATE_PAGE),
+    notionMcpToolCreateDatabase: parseOptionalString(
+      process.env.NOTION_MCP_TOOL_CREATE_DATABASE
+    ),
+    notionMcpToolQueryDatabase: parseOptionalString(
+      process.env.NOTION_MCP_TOOL_QUERY_DATABASE
+    ),
+    notionMcpToolUpdatePage: parseOptionalString(process.env.NOTION_MCP_TOOL_UPDATE_PAGE)
   };
 }
 
