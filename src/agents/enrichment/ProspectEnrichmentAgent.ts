@@ -1,16 +1,5 @@
-import type { ProspectNotionRow } from "./types.js";
-
-type ProspectProfile = {
-  name: string;
-  company: string;
-  email: string;
-};
-
-export type ProspectEnrichmentResult = {
-  rows: ProspectNotionRow[];
-  companiesCorrected: number;
-  companiesEnriched: number;
-};
+import type { ProspectNotionRow } from "../../prospects/types.js";
+import type { ProspectEnrichmentResult, ProspectProfile } from "./types.js";
 
 const KNOWN_TOOL_NAMES = [
   "hubspot",
@@ -106,71 +95,74 @@ function appendSentence(base: string, sentence: string): string {
   return `${trimmedBase}${separator}${trimmedSentence}`;
 }
 
-export function enrichProspectRows(rows: ProspectNotionRow[]): ProspectEnrichmentResult {
-  let companiesCorrected = 0;
-  let companiesEnriched = 0;
-  const cleanedRows = rows.map((row) => {
-    if (!isSuspiciousToolCompany(row.company)) {
-      return row;
-    }
+export class ProspectEnrichmentAgent {
+  async enrich(rows: ProspectNotionRow[]): Promise<ProspectEnrichmentResult> {
+    let companiesCorrected = 0;
+    let companiesEnriched = 0;
+    const cleanedRows = rows.map((row) => {
+      if (!isSuspiciousToolCompany(row.company)) {
+        return row;
+      }
 
-    companiesCorrected += 1;
+      companiesCorrected += 1;
+      return {
+        ...row,
+        company: null,
+        notes: appendSentence(row.notes, "Company corrected from tool mention before enrichment.")
+      };
+    });
+
+    const profiles: ProspectProfile[] = cleanedRows
+      .filter((row) => row.name && row.company)
+      .map((row) => ({
+        name: row.name as string,
+        company: row.company as string,
+        email: row.email.toLowerCase()
+      }));
+
+    const enrichedRows = cleanedRows.map((row) => {
+      if (row.company || !row.name) {
+        return row;
+      }
+
+      const compatibleProfiles = profiles.filter((profile) =>
+        areNamesCompatible({
+          leftName: row.name,
+          rightName: profile.name,
+          sameSenderEmail: row.email.toLowerCase() === profile.email
+        })
+      );
+      const companies = Array.from(new Set(compatibleProfiles.map((profile) => profile.company)));
+
+      if (companies.length === 1) {
+        companiesEnriched += 1;
+        return {
+          ...row,
+          company: companies[0],
+          notes: appendSentence(
+            row.notes,
+            `Company inferred from related ${row.name} email: ${companies[0]}.`
+          )
+        };
+      }
+
+      if (companies.length > 1) {
+        return {
+          ...row,
+          notes: appendSentence(
+            row.notes,
+            "Company not inferred due to conflicting related company evidence."
+          )
+        };
+      }
+
+      return row;
+    });
+
     return {
-      ...row,
-      company: null,
-      notes: appendSentence(row.notes, "Company corrected from tool mention before enrichment.")
+      rows: enrichedRows,
+      companiesCorrected,
+      companiesEnriched
     };
-  });
-  const profiles: ProspectProfile[] = cleanedRows
-    .filter((row) => row.name && row.company)
-    .map((row) => ({
-      name: row.name as string,
-      company: row.company as string,
-      email: row.email.toLowerCase()
-    }));
-
-  const enrichedRows = cleanedRows.map((row) => {
-    if (row.company || !row.name) {
-      return row;
-    }
-
-    const compatibleProfiles = profiles.filter((profile) =>
-      areNamesCompatible({
-        leftName: row.name,
-        rightName: profile.name,
-        sameSenderEmail: row.email.toLowerCase() === profile.email
-      })
-    );
-    const companies = Array.from(new Set(compatibleProfiles.map((profile) => profile.company)));
-
-    if (companies.length === 1) {
-      companiesEnriched += 1;
-      return {
-        ...row,
-        company: companies[0],
-        notes: appendSentence(
-          row.notes,
-          `Company inferred from related ${row.name} email: ${companies[0]}.`
-        )
-      };
-    }
-
-    if (companies.length > 1) {
-      return {
-        ...row,
-        notes: appendSentence(
-          row.notes,
-          "Company not inferred due to conflicting related company evidence."
-        )
-      };
-    }
-
-    return row;
-  });
-
-  return {
-    rows: enrichedRows,
-    companiesCorrected,
-    companiesEnriched
-  };
+  }
 }

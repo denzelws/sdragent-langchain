@@ -6,10 +6,10 @@ import { createProspectRows } from "../notion/createProspectRows.js";
 import { findOrCreateProspectsDatabase } from "../notion/findOrCreateProspectsDatabase.js";
 import { findOrCreateSdrPage } from "../notion/findOrCreateSdrPage.js";
 import { NotionMcpClient } from "../notion/notionMcpClient.js";
+import { ProspectEnrichmentAgent } from "../agents/enrichment/ProspectEnrichmentAgent.js";
 import { createOllamaProvider } from "../llm/ollamaProvider.js";
 import { logger } from "../utils/logger.js";
 import { askForApproval } from "../utils/terminalApproval.js";
-import { enrichProspectRows } from "./enrichProspectRows.js";
 import { extractProspectForNotion } from "./extractProspectForNotion.js";
 import type { NotionDatabaseRef } from "../notion/types.js";
 import type { ProspectNotionRow } from "./types.js";
@@ -187,7 +187,8 @@ async function main(): Promise<void> {
       }
     }
 
-    const enrichmentResult = enrichProspectRows(candidates);
+    const prospectEnrichmentAgent = new ProspectEnrichmentAgent();
+    const enrichmentResult = await prospectEnrichmentAgent.enrich(candidates);
     const enrichedRows = enrichmentResult.rows;
     const dedupedRows = deduplicateProspects(enrichedRows, config.debugLlmOutput);
     const report: ProspectLoggerReport = {
